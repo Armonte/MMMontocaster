@@ -14,7 +14,11 @@
       "Bash(i686-w64-mingw32-g++:*)",
       "mcp__ghidra__decompile_function",
       "mcp__ghidra__search_functions_by_name",
-      "mcp__ghidra__disassemble_function"
+      "mcp__ghidra__disassemble_function",
+      "mcp__ghidra__get_xrefs_to",
+      "Bash(grep:*)",
+      "Bash(python3:*)",
+      "Bash(pkill:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

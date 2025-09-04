@@ -20,12 +20,38 @@
 #include "ExternalIpAddress.hpp"
 
 #include <windows.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 
 #include <vector>
 #include <memory>
 #include <algorithm>
 
 using namespace std;
+
+// Global disconnect protection flags - accessible from DllNetplayManager.cpp
+bool gracefulDisconnectCompleted = false;
+bool networkCleanupInProgress = false;
+
+// UDP logging function for meepster's logServer.py
+void udpLogMain(const char* message) {
+    static SOCKET sock = INVALID_SOCKET;
+    static bool sockInitialized = false;
+    
+    if (!sockInitialized) {
+        sock = socket(AF_INET, SOCK_DGRAM, 0);
+        sockInitialized = true;
+    }
+    
+    if (sock != INVALID_SOCKET) {
+        struct sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(17474);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        
+        sendto(sock, message, strlen(message), 0, (struct sockaddr*)&addr, sizeof(addr));
+    }
+}
 
 
 // The main log file path
@@ -196,6 +222,13 @@ struct DllMain
 
     void frameStepNormal()
     {
+        // Add frame step logging to trace execution
+        static int frameCount = 0;
+        if (gracefulDisconnectCompleted && frameCount < 10) {
+            udpLogMain("```FRAME_STEP: frameStepNormal() called after disconnect");
+            frameCount++;
+        }
+        
         switch ( netMan.getState().value )
         {
             case NetplayState::PreInitial:
@@ -495,6 +528,16 @@ struct DllMain
                             if ( lazyDisconnect )
                             {
                                 lazyDisconnect = false;
+                                
+                                // Skip delayedStop if we've completed a graceful disconnect
+                                if ( gracefulDisconnectCompleted )
+                                {
+                                    udpLogMain("``RETRY_MENU: Skipping delayedStop - graceful disconnect already completed");
+                                    LOG ( "RETRY_MENU: Skipping delayedStop - graceful disconnect already completed" );
+                                    break;
+                                }
+                                
+                                udpLogMain("``RETRY_MENU: Calling delayedStop - lazy disconnect in retry menu");
                                 delayedStop ( "Disconnected!" );
                             }
                             break;
@@ -547,7 +590,9 @@ struct DllMain
             // Poll until we are ready to run
             if ( ! EventManager::get().poll ( POLL_TIMEOUT ) )
             {
+                udpLogMain("```CRITICAL: EventManager::poll() FAILED - Setting appState to Stopping");
                 appState = AppState::Stopping;
+                udpLogMain("```CRITICAL: About to return from main loop due to EventManager failure");
                 return;
             }
 
@@ -573,8 +618,10 @@ struct DllMain
                 if ( framesWithoutData >= DISCONNECT_TIMEOUT_FRAMES && !isDisconnecting )
                 {
                     LOG ( "Connection timeout detected - initiating graceful disconnect" );
+                    udpLogMain("``TIMEOUT PATH - About to call handleGracefulDisconnect()");
                     isDisconnecting = true;
                     handleGracefulDisconnect();
+                    udpLogMain("``TIMEOUT PATH - Returned from handleGracefulDisconnect() - about to break");
                     break;
                 }
             }
@@ -608,6 +655,11 @@ struct DllMain
                     waitInputsTimer = 0;
                 }
             }
+        }
+
+        // Add logging to trace execution after disconnect handling
+        if (gracefulDisconnectCompleted) {
+            udpLogMain("``POST-DISCONNECT: Continuing main loop execution after successful disconnect");
         }
 
         if ( rollbackTimer < minRollbackSpacing )
@@ -853,6 +905,18 @@ struct DllMain
 #undef R
 
             syncLog.deinitialize();
+            
+            // Skip delayedStop if we've completed a graceful disconnect
+            if ( gracefulDisconnectCompleted )
+            {
+                udpLogMain("``DESYNC: Skipping delayedStop - graceful disconnect already completed");
+                LOG ( "DESYNC: Skipping delayedStop - graceful disconnect already completed" );
+                randomInputs = false;
+                localInputs [ clientMode.isLocal() ? 1 : 0 ] = 0;
+                return;
+            }
+            
+            udpLogMain("``DESYNC: Calling delayedStop - desync detected");
             delayedStop ( "Desync!" );
 
             randomInputs = false;
@@ -882,11 +946,29 @@ struct DllMain
                 LOG_TO ( syncLog, "Desync!" );
                 syncLog.deinitialize();
 
+                // Skip delayedStop if we've completed a graceful disconnect
+                if ( gracefulDisconnectCompleted )
+                {
+                    udpLogMain("``RNG_DESYNC: Skipping delayedStop - graceful disconnect already completed");
+                    LOG ( "RNG_DESYNC: Skipping delayedStop - graceful disconnect already completed" );
+                    return;
+                }
+                
+                udpLogMain("``RNG_DESYNC: Calling delayedStop - RNG desync detected");
                 delayedStop ( ERROR_INTERNAL );
                 return;
             }
             else
             {
+                // Skip delayedStop if we've completed a graceful disconnect
+                if ( gracefulDisconnectCompleted )
+                {
+                    udpLogMain("``RNG_CHECK: Skipping delayedStop - graceful disconnect already completed");
+                    LOG ( "RNG_CHECK: Skipping delayedStop - graceful disconnect already completed" );
+                    return;
+                }
+                
+                udpLogMain("``RNG_CHECK: Calling delayedStop - RNG check failed");
                 delayedStop ( ERROR_INTERNAL );
                 return;
             }
@@ -1035,6 +1117,15 @@ struct DllMain
             LOG_TO ( syncLog, "Invalid transition: %s -> %s", netMan.getState(), state );
             syncLog.deinitialize();
 
+            // Skip delayedStop if we've completed a graceful disconnect
+            if ( gracefulDisconnectCompleted )
+            {
+                udpLogMain("``INVALID_TRANSITION: Skipping delayedStop - graceful disconnect already completed");
+                LOG ( "INVALID_TRANSITION: Skipping delayedStop - graceful disconnect already completed" );
+                return;
+            }
+            
+            udpLogMain("``INVALID_TRANSITION: Calling delayedStop - invalid state transition");
             delayedStop ( ERROR_INTERNAL );
             return;
         }
@@ -1123,9 +1214,18 @@ struct DllMain
         {
             lazyDisconnect = false;
 
+            // Skip delayedStop if we've completed a graceful disconnect
+            if ( gracefulDisconnectCompleted )
+            {
+                udpLogMain("``Skipping delayedStop - graceful disconnect already completed");
+                LOG ( "Skipping delayedStop - graceful disconnect already completed" );
+                return;
+            }
+
             // If not entering RetryMenu and we're already disconnected...
             if ( !dataSocket || !dataSocket->isConnected() )
             {
+                udpLogMain("``CALLING delayedStop - lazyDisconnect logic");
                 delayedStop ( "Disconnected!" );
                 return;
             }
@@ -1218,6 +1318,17 @@ struct DllMain
 
     void delayedStop ( const string& error )
     {
+        // CRITICAL: Prevent force-close during graceful disconnect
+        if ( gracefulDisconnectCompleted || isDisconnecting )
+        {
+            udpLogMain("``delayedStop() BLOCKED - graceful disconnect in progress or completed");
+            LOG ( "delayedStop() blocked - graceful disconnect in progress or completed" );
+            return;
+        }
+        
+        udpLogMain("``delayedStop() EXECUTING - will force close game");
+        LOG ( "delayedStop() executing - will force close game: %s", error.c_str() );
+        
         if ( ! error.empty() )
             procMan.ipcSend ( new ErrorMessage ( error ) );
 
@@ -1395,8 +1506,10 @@ struct DllMain
             LOG ( "Socket disconnected - initiating graceful recovery" );
             if ( !isDisconnecting )
             {
+                udpLogMain("``SOCKET PATH - About to call handleGracefulDisconnect()");
                 isDisconnecting = true;
                 handleGracefulDisconnect();
+                udpLogMain("``SOCKET PATH - Returned from handleGracefulDisconnect() - about to return");
             }
             return;
         }
@@ -1585,9 +1698,11 @@ struct DllMain
 
     void ipcDisconnected() override
     {
+        udpLogMain("```IPC DISCONNECTED - ABOUT TO STOP EVENT MANAGER");
         appState = AppState::Stopping;
         EventManager::get().stop();
         stopping = true;
+        udpLogMain("```IPC DISCONNECTED - EVENT MANAGER STOPPED");
     }
 
     void ipcRead ( const MsgPtr& msg ) override
@@ -1976,10 +2091,31 @@ struct DllMain
             ++waitInputsTimer;
 
             if ( waitInputsTimer > ( MAX_WAIT_INPUTS_INTERVAL / RESEND_INPUTS_INTERVAL ) )
+            {
+                // Skip delayedStop if we've completed a graceful disconnect
+                if ( gracefulDisconnectCompleted )
+                {
+                    udpLogMain("``TIMER: Skipping delayedStop - graceful disconnect already completed");
+                    LOG ( "TIMER: Skipping delayedStop - graceful disconnect already completed" );
+                    return;
+                }
+                
+                udpLogMain("``TIMER: Calling delayedStop - timeout detected");
                 delayedStop ( "Timed out!" );
+            }
         }
         else if ( timer == initialTimer.get() )
         {
+            // Skip delayedStop if we've completed a graceful disconnect
+            if ( gracefulDisconnectCompleted )
+            {
+                udpLogMain("``INITIAL_TIMER: Skipping delayedStop - graceful disconnect already completed");
+                LOG ( "INITIAL_TIMER: Skipping delayedStop - graceful disconnect already completed" );
+                initialTimer.reset();
+                return;
+            }
+            
+            udpLogMain("``INITIAL_TIMER: Calling delayedStop - initial timeout");
             delayedStop ( "Disconnected!" );
             initialTimer.reset();
         }
@@ -2067,17 +2203,29 @@ struct DllMain
     // Handle graceful disconnection when timeout is detected
     void handleGracefulDisconnect()
     {
+        udpLogMain("``handleGracefulDisconnect - ENTRY");
+        
+        // SET FLAGS IMMEDIATELY to prevent race conditions with delayedStop()
+        gracefulDisconnectCompleted = true;
+        isDisconnecting = true;
+        udpLogMain("``FLAGS SET IMMEDIATELY - gracefulDisconnectCompleted = true");
+        
         LOG ( "Handling graceful disconnection - restoring offline state" );
         
         try {
+            udpLogMain("``About to close data socket");
             // Close the data socket if it exists
             if ( dataSocket )
             {
                 LOG ( "Closing data socket" );
+                udpLogMain("``Calling dataSocket->disconnect()");
                 dataSocket->disconnect();
+                udpLogMain("``Calling dataSocket.reset()");
                 dataSocket.reset();
+                udpLogMain("``dataSocket reset complete");
             }
             
+            udpLogMain("``Clearing timers and flags");
             // Clear any pending network operations
             resendTimer.reset();
             waitInputsTimer = -1;
@@ -2087,12 +2235,24 @@ struct DllMain
             framesWithoutData = 0;
             
             // Call NetplayManager to restore offline game mode
+            udpLogMain("``About to call netMan.handleDisconnection()");
             netMan.handleDisconnection();
+            udpLogMain("``Returned from netMan.handleDisconnection()");
             
             // Mark disconnection as handled
             isDisconnecting = false;
+            // gracefulDisconnectCompleted already set at start to win race condition
             
-            LOG ( "Graceful disconnection completed" );
+            // NO MENU TRANSITION - just test stable network cleanup
+            udpLogMain("``Network cleanup completed - NO MENU TRANSITION");
+            udpLogMain("``GRACEFUL DISCONNECT SUCCESS - Game should remain open and playable");
+            char stateMsg[256];
+            snprintf(stateMsg, sizeof(stateMsg), "``Final state: gracefulDisconnectCompleted=%d, isDisconnecting=%d", 
+                    gracefulDisconnectCompleted ? 1 : 0, isDisconnecting ? 1 : 0);
+            udpLogMain(stateMsg);
+            
+            udpLogMain("``handleGracefulDisconnect - SUCCESS - ABOUT TO RETURN TO CALLER");
+            LOG ( "Graceful disconnection completed - game should remain open" );
         }
         catch (...) {
             LOG ( "Error during graceful disconnection - minimal cleanup" );
@@ -2190,6 +2350,9 @@ extern "C" BOOL APIENTRY DllMain ( HMODULE, DWORD reason, LPVOID )
 
             LOG ( "DLL_PROCESS_ATTACH" );
             LOG ( "gameDir='%s'", ProcessManager::gameDir );
+            
+            // Test UDP logging
+            udpLogMain("```DLL_PROCESS_ATTACH - UDP logging test");
 
             // We want the DLL to be able to rebind any previously bound ports
             Socket::forceReusePort ( true );

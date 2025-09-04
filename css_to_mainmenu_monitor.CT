@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="45">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>1000</ID>
+      <Description>"=== PRIMARY GAME MODE ADDRESSES ==="</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <GroupHeader>1</GroupHeader>
+      <Color>FF0000</Color>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>1001</ID>
+      <Description>"goalGameMode (we set to 25)"</Description>
+      <LastState Value="0" RealAddress="0055D1D0"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>FF0000</Color>
+      <VariableType>4 Bytes</VariableType>
+      <Address>0055D1D0</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>1002</ID>
+      <Description>"currentGameMode"</Description>
+      <LastState Value="0" RealAddress="0054EEE8"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>FF0000</Color>
+      <VariableType>4 Bytes</VariableType>
+      <Address>0054EEE8</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>1003</ID>
+      <Description>"g_NewSceneFlag (we set to 1)"</Description>
+      <LastState Value="0" RealAddress="0055DEC3"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>FF0000</Color>
+      <VariableType>Byte</VariableType>
+      <Address>0055DEC3</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>1004</ID>
+      <Description>"Critical transition flag (we set to 1)"</Description>
+      <LastState Value="0" RealAddress="0076E6E8"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>FF0000</Color>
+      <VariableType>4 Bytes</VariableType>
+      <Address>0076E6E8</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2000</ID>
+      <Description>"=== MENU SYSTEM ADDRESSES ==="</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <GroupHeader>1</GroupHeader>
+      <Color>00FF00</Color>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2001</ID>
+      <Description>"Training Menu base (we clear to 0)"</Description>
+      <LastState Value="0" RealAddress="0074D7FC"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>00FF00</Color>
+      <VariableType>4 Bytes</VariableType>
+      <Address>0074D7FC</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2002</ID>
+      <Description>"Menu opened state (we clear to 0)"</Description>
+      <LastState Value="0" RealAddress="0061DE30"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>00FF00</Color>
+      <VariableType>4 Bytes</VariableType>
+      <Address>0061DE30</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2003</ID>
+      <Description>"Menu state 1 (we clear to 0)"</Description>
+      <LastState Value="0" RealAddress="00559546"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>00FF00</Color>
+      <VariableType>Byte</VariableType>
+      <Address>00559546</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2004</ID>
+      <Description>"Menu state 2 (we clear to 0)"</Description>
+      <LastState Value="0" RealAddress="0055D208"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>00FF00</Color>
+      <VariableType>2 Bytes</VariableType>
+      <Address>0055D208</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2005</ID>
+      <Description>"Menu state 3 (we clear to 0)"</Description>
+      <LastState Value="0" RealAddress="0076E6F8"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>00FF00</Color>
+      <VariableType>Byte</VariableType>
+      <Address>0076E6F8</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2006</ID>
+      <Description>"Menu state 4 (we clear to 0)"</Description>
+      <LastState Value="0" RealAddress="00557D2B"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>00FF00</Color>
+      <VariableType>Byte</VariableType>
+      <Address>00557D2B</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2007</ID>
+      <Description>"Menu state 5 (we clear to 0)"</Description>
+      <LastState Value="0" RealAddress="00562A48"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>00FF00</Color>
+      <VariableType>Byte</VariableType>
+      <Address>00562A48</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2008</ID>
+      <Description>"Menu state 6 (we clear to 0)"</Description>
+      <LastState Value="0" RealAddress="0076E7FC"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>00FF00</Color>
+      <VariableType>Byte</VariableType>
+      <Address>0076E7FC</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>3000</ID>
+      <Description>"=== ADDITIONAL MONITORING ==="</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <GroupHeader>1</GroupHeader>
+      <Color>0080FF</Color>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>3001</ID>
+      <Description>"Game State (1=In-Game, 2=Title, 25=Main Menu)"</Description>
+      <LastState Value="0" RealAddress="0054EEE8"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>0080FF</Color>
+      <VariableType>4 Bytes</VariableType>
+      <Address>0054EEE8</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>3002</ID>
+      <Description>"Menu Counter (may change on transitions)"</Description>
+      <LastState Value="0" RealAddress="00559546"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>0080FF</Color>
+      <VariableType>4 Bytes</VariableType>
+      <Address>00559546</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>3003</ID>
+      <Description>"World Timer (frame timing)"</Description>
+      <LastState Value="0" RealAddress="00559546"/>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>0080FF</Color>
+      <VariableType>4 Bytes</VariableType>
+      <Address>0055DEC4</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4000</ID>
+      <Description>"=== INSTRUCTIONS ==="</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <GroupHeader>1</GroupHeader>
+      <Color>808080</Color>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4001</ID>
+      <Description>"1. Go to CSS in MBAA"</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>808080</Color>
+      <VariableType>String</VariableType>
+      <Length>1</Length>
+      <Unicode>0</Unicode>
+      <CodePage>0</CodePage>
+      <ZeroTerminate>1</ZeroTerminate>
+      <Address>00000000</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4002</ID>
+      <Description>"2. Watch all values above"</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>808080</Color>
+      <VariableType>String</VariableType>
+      <Length>1</Length>
+      <Unicode>0</Unicode>
+      <CodePage>0</CodePage>
+      <ZeroTerminate>1</ZeroTerminate>
+      <Address>00000000</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4003</ID>
+      <Description>"3. Press B to go back to main menu"</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>808080</Color>
+      <VariableType>String</VariableType>
+      <Length>1</Length>
+      <Unicode>0</Unicode>
+      <CodePage>0</CodePage>
+      <ZeroTerminate>1</ZeroTerminate>
+      <Address>00000000</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4004</ID>
+      <Description>"4. Note which values change and in what order"</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>808080</Color>
+      <VariableType>String</VariableType>
+      <Length>1</Length>
+      <Unicode>0</Unicode>
+      <CodePage>0</CodePage>
+      <ZeroTerminate>1</ZeroTerminate>
+      <Address>00000000</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4005</ID>
+      <Description>"5. Red = Primary addresses we modify"</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>808080</Color>
+      <VariableType>String</VariableType>
+      <Length>1</Length>
+      <Unicode>0</Unicode>
+      <CodePage>0</CodePage>
+      <ZeroTerminate>1</ZeroTerminate>
+      <Address>00000000</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4006</ID>
+      <Description>"6. Green = Menu addresses we clear"</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>808080</Color>
+      <VariableType>String</VariableType>
+      <Length>1</Length>
+      <Unicode>0</Unicode>
+      <CodePage>0</CodePage>
+      <ZeroTerminate>1</ZeroTerminate>
+      <Address>00000000</Address>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>4007</ID>
+      <Description>"7. Blue = Additional monitoring"</Description>
+      <ShowAsSigned>0</ShowAsSigned>
+      <Color>808080</Color>
+      <VariableType>String</VariableType>
+      <Length>1</Length>
+      <Unicode>0</Unicode>
+      <CodePage>0</CodePage>
+      <ZeroTerminate>1</ZeroTerminate>
+      <Address>00000000</Address>
+    </CheatEntry>
+  </CheatEntries>
+</CheatTable>

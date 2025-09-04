@@ -18,6 +18,26 @@
 #include <winsock2.h>
 #include <wininet.h>
 
+// UDP logging function for meepster's logServer.py
+void udpLog(const char* message) {
+    static SOCKET sock = INVALID_SOCKET;
+    static bool sockInitialized = false;
+    
+    if (!sockInitialized) {
+        sock = socket(AF_INET, SOCK_DGRAM, 0);
+        sockInitialized = true;
+    }
+    
+    if (sock != INVALID_SOCKET) {
+        struct sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(17474);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        
+        sendto(sock, message, strlen(message), 0, (struct sockaddr*)&addr, sizeof(addr));
+    }
+}
+
 void ___log(const char* msg)
 {
 	const char* ipAddress = "127.0.0.1";
@@ -1268,7 +1288,45 @@ void NetplayManager::findAndReplaceAll( string& data, string toSearch, string re
 
 void NetplayManager::handleDisconnection()
 {
-    LOG ( "NetplayManager::handleDisconnection - cleaning up network state" );
+    udpLog("```DISCONNECT_HANDLER: handleDisconnection() called - WHO CALLED ME?");
+    
+    // SET GLOBAL PROTECTION FLAGS to prevent all crashes
+    extern bool gracefulDisconnectCompleted;
+    extern bool networkCleanupInProgress;
+    gracefulDisconnectCompleted = true;
+    networkCleanupInProgress = true;
+    udpLog("```DISCONNECT_HANDLER: GLOBAL PROTECTION FLAGS SET");
+    
+    udpLog("```DISCONNECT_HANDLER: Doing MINIMAL network cleanup only - no game mode changes");
+    LOG ( "NetplayManager::handleDisconnection - minimal cleanup to prevent crash" );
+    
+    try {
+        // MINIMAL CLEANUP - only what the mystery caller expects
+        _state = NetplayState::Initial;  // Reset to offline state
+        
+        // Clear input buffers that might cause crashes if accessed
+        _inputs[0].clear();
+        _inputs[1].clear();
+        
+        // Clear any retry menu state
+        _localRetryMenuIndex = -1;
+        _remoteRetryMenuIndex = -1;
+        
+        // Reset frame tracking to avoid invalid memory access
+        _indexedFrame.parts.index = 0;
+        _indexedFrame.parts.frame = 0;
+        
+        udpLog("```DISCONNECT_HANDLER: Minimal network state cleanup completed");
+        
+        // NO GAME MODE CHANGES - avoid any menu transitions that might crash
+        // NO socket operations - avoid network cleanup that might crash
+        
+    } catch (...) {
+        udpLog("```DISCONNECT_HANDLER: Exception in minimal cleanup - continuing anyway");
+    }
+    
+    udpLog("```DISCONNECT_HANDLER: About to return after minimal cleanup");
+    return;
     
     try {
         // Reset network state to initial/offline
@@ -1292,19 +1350,24 @@ void NetplayManager::handleDisconnection()
         
         // Restore the game to offline mode (this is the critical part)
         restoreOfflineGameMode();
+        udpLog("```About to exit handleDisconnection() - restoreOfflineGameMode completed");
         
         LOG ( "Network state cleared - transitioning to main menu" );
+        udpLog("```handleDisconnection() - ABOUT TO RETURN");
     }
     catch (...) {
+        udpLog("```handleDisconnection() - EXCEPTION CAUGHT");
         LOG ( "Error during disconnection handling - minimal cleanup" );
         _state = NetplayState::Initial;
         *CC_GAME_MODE_ADDR = CC_GAME_MODE_MAIN;
+        udpLog("```handleDisconnection() - EXCEPTION HANDLER COMPLETED");
     }
 }
 
 void NetplayManager::restoreOfflineGameMode()
 {
-    LOG ( "NetplayManager::restoreOfflineGameMode - using direct game function call" );
+    udpLog("```NetplayManager::restoreOfflineGameMode - ENTRY");
+    LOG ( "NetplayManager::restoreOfflineGameMode - comprehensive cleanup approach" );
     
     try {
         // Set to offline mode first
@@ -1314,26 +1377,33 @@ void NetplayManager::restoreOfflineGameMode()
         config.rollback = 0;    // No rollback in offline mode
         config.rollbackDelay = 0;
         
-        // Use the same method the game uses for "Return to Main Menu"
-        // Found in HandleMainMenuSelection @ 0042b460 via Ghidra analysis
+        // ONLY the two addresses that work manually
+        uint32_t* goalGameModeAddr = (uint32_t*) 0x0055d1d0;        // goal game mode
+        uint8_t* newSceneFlagAddr = (uint8_t*) 0x0055dec3;          // g_NewSceneFlag
+        uint32_t* currentGameModeAddr = (uint32_t*) 0x0054eee8;     // current game mode (READ ONLY for logging)
         
-        // Memory addresses found via disassembly:
-        // goalGameMode_maybeMenuIndex_ @ 0x0055d1d0
-        // g_NewSceneFlag @ 0x0055dec3  
-        // DAT_0076e6e8 @ 0x0076e6e8 (missing piece!)
+        // Read current values before modification
+        uint32_t currentGameModeBefore = *currentGameModeAddr;
+        uint32_t goalGameModeBefore = *goalGameModeAddr;
+        uint8_t newSceneFlagBefore = *newSceneFlagAddr;
         
-        uint32_t* goalGameModeAddr = (uint32_t*) 0x0055d1d0;
-        uint8_t* newSceneFlagAddr = (uint8_t*) 0x0055dec3;
-        uint32_t* unknownFlagAddr = (uint32_t*) 0x0076e6e8;  // The missing piece!
+        char beforeMsg[256];
+        sprintf(beforeMsg, "```BEFORE: currentGameMode=%d, goalGameMode=%d, newSceneFlag=%d", 
+                currentGameModeBefore, goalGameModeBefore, newSceneFlagBefore);
+        udpLog(beforeMsg);
         
-        // Set ALL the values the game uses for returning to main menu (complete sequence)
-        *goalGameModeAddr = 2;     // Main menu mode (same as RETURN_TITLE)
-        *unknownFlagAddr = 1;      // Unknown flag - CRITICAL for proper transition!
-        *newSceneFlagAddr = 1;     // Trigger scene transition
+        // NO MENU TRANSITION AT ALL - just stable network cleanup
+        // *goalGameModeAddr = 25;      // COMMENTED OUT - no menu changes
+        // *newSceneFlagAddr = 1;       // COMMENTED OUT - no menu changes
         
-        LOG ( "Set goalGameMode=2, unknownFlag=1, g_NewSceneFlag=1 - complete main menu transition" );
+        char afterMsg[256];
+        sprintf(afterMsg, "```AFTER: NO MENU CHANGES - just network cleanup");
+        udpLog(afterMsg);
+        
+        udpLog("```NetplayManager::restoreOfflineGameMode - SUCCESS");
     }
     catch (...) {
+        udpLog("```NetplayManager::restoreOfflineGameMode - EXCEPTION");
         LOG ( "Error in restoreOfflineGameMode - trying fallback" );
         config.mode = ClientMode ( ClientMode::Offline, 0 );
         *CC_GAME_MODE_ADDR = CC_GAME_MODE_MAIN;
