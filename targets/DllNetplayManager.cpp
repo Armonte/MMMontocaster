@@ -792,6 +792,16 @@ uint16_t NetplayManager::getInput ( uint8_t player )
 {
     ASSERT ( player == 1 || player == 2 );
 
+    // If disconnected, return no input to prevent any automatic actions
+    if ( _disconnected ) {
+        static int logCount = 0;
+        if ( logCount < 5 ) {  // Only log first 5 times to avoid spam
+            udpLog("```INPUT BLOCKED: _disconnected=true, returning 0 input");
+            logCount++;
+        }
+        return 0;  // No input - game will remain static
+    }
+
     switch ( _state.value )
     {
         case NetplayState::PreInitial:
@@ -1297,14 +1307,21 @@ void NetplayManager::handleDisconnection()
     networkCleanupInProgress = true;
     udpLog("```DISCONNECT_HANDLER: GLOBAL PROTECTION FLAGS SET");
     
-    udpLog("```DISCONNECT_HANDLER: Doing MINIMAL network cleanup only - no game mode changes");
-    LOG ( "NetplayManager::handleDisconnection - minimal cleanup to prevent crash" );
+    udpLog("```DISCONNECT_HANDLER: Doing FULL disconnect cleanup - disabling input processing");
+    LOG ( "NetplayManager::handleDisconnection - full cleanup to prevent crashes and unwanted inputs" );
     
     try {
-        // MINIMAL CLEANUP - only what the mystery caller expects
-        _state = NetplayState::Initial;  // Reset to offline state
+        // PROPER DISCONNECTION CLEANUP - disable input processing completely
+        _disconnected = true;  // THIS WILL DISABLE ALL INPUT PROCESSING
+        _state = NetplayState::Initial;  // Reset to offline state (but _disconnected overrides this)
         
-        // Clear input buffers that might cause crashes if accessed
+        // DISABLE INPUT PROCESSING - switch to offline training mode
+        config.mode.flags = ClientMode::Training;  // Training mode only
+        config.hostPlayer = 1;  // Local player only (no network)
+        config.delay = 0;  // No input delay in offline mode
+        config.rollback = 0;  // No rollback in offline mode
+        
+        // Clear input buffers completely
         _inputs[0].clear();
         _inputs[1].clear();
         
@@ -1316,7 +1333,12 @@ void NetplayManager::handleDisconnection()
         _indexedFrame.parts.index = 0;
         _indexedFrame.parts.frame = 0;
         
-        udpLog("```DISCONNECT_HANDLER: Minimal network state cleanup completed");
+        // Clear any pending state transitions or actions
+        _targetMenuState = -1;
+        _targetMenuIndex = -1;
+        _trainingResetState = -1;
+        
+        udpLog("```DISCONNECT_HANDLER: FULL disconnect cleanup completed - _disconnected=true, input processing BLOCKED");
         
         // NO GAME MODE CHANGES - avoid any menu transitions that might crash
         // NO socket operations - avoid network cleanup that might crash
@@ -1325,43 +1347,8 @@ void NetplayManager::handleDisconnection()
         udpLog("```DISCONNECT_HANDLER: Exception in minimal cleanup - continuing anyway");
     }
     
-    udpLog("```DISCONNECT_HANDLER: About to return after minimal cleanup");
+    udpLog("```DISCONNECT_HANDLER: About to return - input processing disabled, training mode set");
     return;
-    
-    try {
-        // Reset network state to initial/offline
-        _state = NetplayState::Initial;
-        
-        // Clear input buffers to avoid stuck states
-        _inputs[0].clear();
-        _inputs[1].clear();
-        
-        // Clear retry menu indices
-        _localRetryMenuIndex = -1;
-        _remoteRetryMenuIndex = -1;
-        
-        // Clear menu navigation state
-        _targetMenuState = -1;
-        _targetMenuIndex = -1;
-        
-        // Reset frame tracking to avoid black screen
-        _indexedFrame.parts.index = 0;
-        _indexedFrame.parts.frame = 0;
-        
-        // Restore the game to offline mode (this is the critical part)
-        restoreOfflineGameMode();
-        udpLog("```About to exit handleDisconnection() - restoreOfflineGameMode completed");
-        
-        LOG ( "Network state cleared - transitioning to main menu" );
-        udpLog("```handleDisconnection() - ABOUT TO RETURN");
-    }
-    catch (...) {
-        udpLog("```handleDisconnection() - EXCEPTION CAUGHT");
-        LOG ( "Error during disconnection handling - minimal cleanup" );
-        _state = NetplayState::Initial;
-        *CC_GAME_MODE_ADDR = CC_GAME_MODE_MAIN;
-        udpLog("```handleDisconnection() - EXCEPTION HANDLER COMPLETED");
-    }
 }
 
 void NetplayManager::restoreOfflineGameMode()

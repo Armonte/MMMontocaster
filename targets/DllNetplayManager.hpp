@@ -213,6 +213,9 @@ private:
     // Delay demo inputs until reset is done
     int demoCountdown = 60;
     int exitCountdown = 0;
+    
+    // Disconnection flag - when true, all input processing is disabled
+    bool _disconnected = false;
 
     // Get the input for the specific NetplayState
     uint16_t getPreInitialInput ( uint8_t player );
