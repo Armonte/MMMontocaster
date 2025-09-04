@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ida__check_connection",
+      "mcp__ida__get_metadata",
+      "mcp__ghidra__get_current_address",
+      "mcp__ghidra__get_current_function",
+      "Bash(g++:*)",
+      "Bash(make:*)",
+      "Bash(gcc:*)",
+      "Bash(i686-w64-mingw32-gcc:*)",
+      "Bash(sed:*)",
+      "Bash(apt search:*)",
+      "Bash(i686-w64-mingw32-g++:*)",
+      "mcp__ghidra__decompile_function",
+      "mcp__ghidra__search_functions_by_name",
+      "mcp__ghidra__disassemble_function"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "ida-pro-mcp"
+  ]
+}

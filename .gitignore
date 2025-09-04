@@ -27,3 +27,5 @@ TAGS
 *.png
 scripts/seqlists*
 debugging
+/scripts
+/scripts

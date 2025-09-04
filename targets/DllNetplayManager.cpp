@@ -1266,3 +1266,74 @@ void NetplayManager::findAndReplaceAll( string& data, string toSearch, string re
     }
 }
 
+void NetplayManager::handleDisconnection()
+{
+    LOG ( "NetplayManager::handleDisconnection - cleaning up network state" );
+    
+    try {
+        // Reset network state to initial/offline
+        _state = NetplayState::Initial;
+        
+        // Clear input buffers to avoid stuck states
+        _inputs[0].clear();
+        _inputs[1].clear();
+        
+        // Clear retry menu indices
+        _localRetryMenuIndex = -1;
+        _remoteRetryMenuIndex = -1;
+        
+        // Clear menu navigation state
+        _targetMenuState = -1;
+        _targetMenuIndex = -1;
+        
+        // Reset frame tracking to avoid black screen
+        _indexedFrame.parts.index = 0;
+        _indexedFrame.parts.frame = 0;
+        
+        // Restore the game to offline mode (this is the critical part)
+        restoreOfflineGameMode();
+        
+        LOG ( "Network state cleared - transitioning to main menu" );
+    }
+    catch (...) {
+        LOG ( "Error during disconnection handling - minimal cleanup" );
+        _state = NetplayState::Initial;
+        *CC_GAME_MODE_ADDR = CC_GAME_MODE_MAIN;
+    }
+}
+
+void NetplayManager::restoreOfflineGameMode()
+{
+    LOG ( "NetplayManager::restoreOfflineGameMode - using direct game function call" );
+    
+    try {
+        // Set to offline mode first
+        config.mode = ClientMode ( ClientMode::Offline, 0 );  // No special flags
+        config.hostPlayer = 1;  // Local player 1
+        config.delay = 0;       // No input delay in offline mode
+        config.rollback = 0;    // No rollback in offline mode
+        config.rollbackDelay = 0;
+        
+        // Use the same method the game uses for "Return to Main Menu"
+        // Found in HandleMainMenuSelection @ 0042b460 via Ghidra analysis
+        
+        // Memory addresses found via disassembly:
+        // goalGameMode_maybeMenuIndex_ @ 0x0055d1d0
+        // g_NewSceneFlag @ 0x0055dec3
+        
+        uint32_t* goalGameModeAddr = (uint32_t*) 0x0055d1d0;
+        uint8_t* newSceneFlagAddr = (uint8_t*) 0x0055dec3;
+        
+        // Set the same values the game uses for returning to main menu
+        *goalGameModeAddr = 2;     // Main menu mode (same as RETURN_TITLE)
+        *newSceneFlagAddr = 1;     // Trigger scene transition
+        
+        LOG ( "Set goalGameMode=2, g_NewSceneFlag=1 - should transition to main menu" );
+    }
+    catch (...) {
+        LOG ( "Error in restoreOfflineGameMode - trying fallback" );
+        config.mode = ClientMode ( ClientMode::Offline, 0 );
+        *CC_GAME_MODE_ADDR = CC_GAME_MODE_MAIN;
+    }
+}
+

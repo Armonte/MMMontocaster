@@ -143,6 +143,11 @@ struct DllMain
     // If we should disconnect at the next NetplayState change
     bool lazyDisconnect = false;
 
+    // Disconnection timeout tracking
+    int framesWithoutData = 0;
+    static constexpr int DISCONNECT_TIMEOUT_FRAMES = 600;  // 10 seconds at 60fps (more conservative)
+    bool isDisconnecting = false;
+
     // If the delay and/or rollback should be changed
     bool shouldChangeDelayRollback = false;
 
@@ -552,6 +557,31 @@ struct DllMain
 
             // Check if we are ready to continue running, ie not waiting on remote input or RngState
             const bool ready = ( netMan.isRemoteInputReady() && netMan.isRngStateReady ( shouldSyncRngState ) );
+
+            // Check for disconnection timeout only if we're in netplay and socket is connected
+            if ( !ready && dataSocket && dataSocket->isConnected() && netMan.getState().value >= NetplayState::CharaSelect )
+            {
+                ++framesWithoutData;
+                
+                // Log every 5 seconds
+                if ( framesWithoutData % 300 == 0 )
+                {
+                    LOG ( "No data for %d frames (~%d seconds)", framesWithoutData, framesWithoutData / 60 );
+                }
+                
+                // Timeout after 10 seconds - only if we're sure socket is actually broken
+                if ( framesWithoutData >= DISCONNECT_TIMEOUT_FRAMES && !isDisconnecting )
+                {
+                    LOG ( "Connection timeout detected - initiating graceful disconnect" );
+                    isDisconnecting = true;
+                    handleGracefulDisconnect();
+                    break;
+                }
+            }
+            else if ( ready )
+            {
+                framesWithoutData = 0;  // Reset counter when we receive data
+            }
 
             // Don't resend inputs in spectator mode
             if ( clientMode.isSpectate() )
@@ -1361,7 +1391,13 @@ struct DllMain
             if ( lazyDisconnect )
                 return;
 
-            delayedStop ( "Disconnected!" );
+            // Use graceful disconnect instead of hard stop
+            LOG ( "Socket disconnected - initiating graceful recovery" );
+            if ( !isDisconnecting )
+            {
+                isDisconnecting = true;
+                handleGracefulDisconnect();
+            }
             return;
         }
 
@@ -2026,6 +2062,45 @@ struct DllMain
         // ChangeMonitor::get().addPtrToRef ( this, Variable ( Variable::AutoReplaySave ),
         //                                    const_cast<const uint32_t *&> ( AsmHacks::autoReplaySaveStatePtr ), 0u );
 #endif // NOT RELEASE
+    }
+
+    // Handle graceful disconnection when timeout is detected
+    void handleGracefulDisconnect()
+    {
+        LOG ( "Handling graceful disconnection - restoring offline state" );
+        
+        try {
+            // Close the data socket if it exists
+            if ( dataSocket )
+            {
+                LOG ( "Closing data socket" );
+                dataSocket->disconnect();
+                dataSocket.reset();
+            }
+            
+            // Clear any pending network operations
+            resendTimer.reset();
+            waitInputsTimer = -1;
+            
+            // Clear network state flags
+            lazyDisconnect = false;
+            framesWithoutData = 0;
+            
+            // Call NetplayManager to restore offline game mode
+            netMan.handleDisconnection();
+            
+            // Mark disconnection as handled
+            isDisconnecting = false;
+            
+            LOG ( "Graceful disconnection completed" );
+        }
+        catch (...) {
+            LOG ( "Error during graceful disconnection - minimal cleanup" );
+            isDisconnecting = false;
+            if ( dataSocket ) {
+                dataSocket.reset();
+            }
+        }
     }
 
     // Destructor

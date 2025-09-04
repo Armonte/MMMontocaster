@@ -139,6 +139,12 @@ public:
     // Check if the next state transition is valid
     bool isValidNext ( NetplayState state );
 
+    // Handle disconnection and restore offline state
+    void handleDisconnection();
+    
+    // Restore the game to offline mode (training at CSS)
+    void restoreOfflineGameMode();
+
     friend class DllRollbackManager;
 
 private:
