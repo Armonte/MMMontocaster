@@ -1319,16 +1319,19 @@ void NetplayManager::restoreOfflineGameMode()
         
         // Memory addresses found via disassembly:
         // goalGameMode_maybeMenuIndex_ @ 0x0055d1d0
-        // g_NewSceneFlag @ 0x0055dec3
+        // g_NewSceneFlag @ 0x0055dec3  
+        // DAT_0076e6e8 @ 0x0076e6e8 (missing piece!)
         
         uint32_t* goalGameModeAddr = (uint32_t*) 0x0055d1d0;
         uint8_t* newSceneFlagAddr = (uint8_t*) 0x0055dec3;
+        uint32_t* unknownFlagAddr = (uint32_t*) 0x0076e6e8;  // The missing piece!
         
-        // Set the same values the game uses for returning to main menu
+        // Set ALL the values the game uses for returning to main menu (complete sequence)
         *goalGameModeAddr = 2;     // Main menu mode (same as RETURN_TITLE)
+        *unknownFlagAddr = 1;      // Unknown flag - CRITICAL for proper transition!
         *newSceneFlagAddr = 1;     // Trigger scene transition
         
-        LOG ( "Set goalGameMode=2, g_NewSceneFlag=1 - should transition to main menu" );
+        LOG ( "Set goalGameMode=2, unknownFlag=1, g_NewSceneFlag=1 - complete main menu transition" );
     }
     catch (...) {
         LOG ( "Error in restoreOfflineGameMode - trying fallback" );
