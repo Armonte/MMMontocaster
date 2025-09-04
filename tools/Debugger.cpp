@@ -99,10 +99,10 @@ int main ( int argc, char *argv[] )
     si.cb = sizeof ( si );
 
 
-    char buffer[exe.size() + 1];
-    strcpy ( buffer, ( "\"" + exe + "\"" ).c_str() );
+    char exeBuffer[exe.size() + 1];
+    strcpy ( exeBuffer, ( "\"" + exe + "\"" ).c_str() );
 
-    if ( ! CreateProcessA ( 0, buffer, 0, 0, TRUE, DEBUG_ONLY_THIS_PROCESS,
+    if ( ! CreateProcessA ( 0, exeBuffer, 0, 0, TRUE, DEBUG_ONLY_THIS_PROCESS,
                             0, cwd.empty() ? 0 : cwd.c_str(), &si, &pi ) )
     {
         PRINT ( "CreateProcess failed: %s", WinException::getLastError() );

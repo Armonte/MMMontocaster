@@ -27,3 +27,8 @@ TAGS
 *.png
 scripts/seqlists*
 debugging
+CasterStatsFork/
+meepster/
+/trainingtool
+setup_dev_env.sh
+/.claude

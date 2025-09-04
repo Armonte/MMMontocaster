@@ -557,7 +557,64 @@ void *ConsoleUi::getConsoleWindow()
     static void *consoleWindow = 0;
 
     if ( ! consoleWindow )
+    {
+        // First try the standard GetConsoleWindow() - works for Windows Console Host
         consoleWindow = GetConsoleWindow();
+        LOG("GetConsoleWindow() returned: %p", consoleWindow);
+        
+        // If that fails or returns NULL, try alternative methods for Windows Terminal
+        if (!consoleWindow)
+        {
+            LOG("GetConsoleWindow() failed, trying alternative methods for Windows Terminal");
+            
+            // Try to get the current process's main window
+            HWND currentWindow = GetForegroundWindow();
+            LOG("GetForegroundWindow() returned: %p", currentWindow);
+            
+            if (currentWindow)
+            {
+                // Get the top-level parent window
+                HWND parent = GetAncestor(currentWindow, GA_ROOT);
+                LOG("GetAncestor(GA_ROOT) returned: %p", parent);
+                
+                if (parent)
+                {
+                    consoleWindow = parent;
+                    LOG("Using parent window as console window: %p", consoleWindow);
+                }
+                else
+                {
+                    // Fallback to the current window if GetAncestor fails
+                    consoleWindow = currentWindow;
+                    LOG("Using current window as console window: %p", consoleWindow);
+                }
+            }
+            
+            // If still no window, try to find any window belonging to our process
+            if (!consoleWindow)
+            {
+                LOG("Still no window, searching for process windows");
+                DWORD processId = GetCurrentProcessId();
+                LOG("Current process ID: %u", processId);
+                
+                HWND foundWindow = FindWindowEx(NULL, NULL, NULL, NULL);
+                while (foundWindow && !consoleWindow)
+                {
+                    DWORD windowProcessId;
+                    GetWindowThreadProcessId(foundWindow, &windowProcessId);
+                    if (windowProcessId == processId)
+                    {
+                        consoleWindow = foundWindow;
+                        LOG("Found process window: %p", consoleWindow);
+                        break;
+                    }
+                    foundWindow = FindWindowEx(NULL, foundWindow, NULL, NULL);
+                }
+            }
+        }
+        
+        LOG("Final console window handle: %p", consoleWindow);
+    }
 
     return consoleWindow;
 }
