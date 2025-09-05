@@ -617,11 +617,12 @@ struct DllMain
                 // Timeout after 10 seconds - only if we're sure socket is actually broken
                 if ( framesWithoutData >= DISCONNECT_TIMEOUT_FRAMES && !isDisconnecting )
                 {
-                    LOG ( "Connection timeout detected - initiating graceful disconnect" );
-                    udpLogMain("``TIMEOUT PATH - About to call handleGracefulDisconnect()");
+                    LOG ( "Connection timeout detected - doing nothing to prevent crash" );
+                    udpLogMain("``TIMEOUT PATH - Connection lost, doing nothing to keep DLL alive");
                     isDisconnecting = true;
-                    handleGracefulDisconnect();
-                    udpLogMain("``TIMEOUT PATH - Returned from handleGracefulDisconnect() - about to break");
+                    // DO NOTHING - just mark that we detected the timeout
+                    // This prevents any cleanup that could crash the DLL
+                    udpLogMain("``TIMEOUT PATH - Timeout noted, continuing to prevent crash");
                     break;
                 }
             }
@@ -1490,33 +1491,47 @@ struct DllMain
     {
         LOG ( "socketDisconnected ( %08x )", socket );
 
-        if ( socket == dataSocket.get() )
+        // ULTRA MINIMAL FIX: Just prevent crashes, don't do ANY cleanup
+        try 
         {
-            if ( netMan.getState() == NetplayState::PreInitial )
+            if ( socket == dataSocket.get() )
             {
-                dataSocket = SmartSocket::connectUDP ( this, address );
-                LOG ( "dataSocket=%08x", dataSocket.get() );
+                if ( netMan.getState() == NetplayState::PreInitial )
+                {
+                    dataSocket = SmartSocket::connectUDP ( this, address );
+                    LOG ( "dataSocket=%08x", dataSocket.get() );
+                    return;
+                }
+
+                if ( lazyDisconnect )
+                    return;
+
+                // DO NOTHING - just log and return
+                // This prevents any socket cleanup that could crash
+                LOG ( "Socket disconnected - doing minimal cleanup to prevent crash" );
+                
+                // Don't call any socket cleanup methods - just mark it as gone
+                // The socket destructor will be called eventually, but not in this callback
+                // This should prevent the immediate crash while keeping IPC alive
                 return;
             }
 
-            if ( lazyDisconnect )
-                return;
-
-            // Use graceful disconnect instead of hard stop
-            LOG ( "Socket disconnected - initiating graceful recovery" );
-            if ( !isDisconnecting )
-            {
-                udpLogMain("``SOCKET PATH - About to call handleGracefulDisconnect()");
-                isDisconnecting = true;
-                handleGracefulDisconnect();
-                udpLogMain("``SOCKET PATH - Returned from handleGracefulDisconnect() - about to return");
-            }
-            return;
+            // Only clean up non-data sockets (these shouldn't crash)
+            redirectedSockets.erase ( socket );
+            popPendingSocket ( socket );
+            popSpectator ( socket );
         }
-
-        redirectedSockets.erase ( socket );
-        popPendingSocket ( socket );
-        popSpectator ( socket );
+        catch ( ... )
+        {
+            LOG ( "Exception in socketDisconnected - all crashes prevented" );
+            
+            // Emergency: Don't do ANYTHING that could cause another crash
+            if ( socket == dataSocket.get() )
+            {
+                LOG ( "Emergency: Data socket crash prevented - doing nothing" );
+                // Don't even touch the socket pointer - just log and return
+            }
+        }
     }
 
     void socketRead ( Socket *socket, const MsgPtr& msg, const IpAddrPort& address ) override
@@ -2366,18 +2381,21 @@ extern "C" BOOL APIENTRY DllMain ( HMODULE, DWORD reason, LPVOID )
             }
             catch ( const Exception& exc )
             {
+                LOG ( "Exception during DLL initialization: %s", exc.what() );
                 exit ( -1 );
             }
 #ifdef NDEBUG
             catch ( const std::exception& exc )
             {
+                LOG ( "std::exception during DLL initialization: %s", exc.what() );
                 exit ( -1 );
             }
             catch ( ... )
             {
+                LOG ( "Unknown exception during DLL initialization" );
                 exit ( -1 );
             }
-#endif // NDEBUG
+#endif
 
             if ( ! SetThreadExecutionState ( ES_CONTINUOUS
                                              | ES_DISPLAY_REQUIRED

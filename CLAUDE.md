@@ -863,4 +863,30 @@ python master_server.py
 
 ---
 
-**Remember**: The #1 priority is fixing the client freeze on disconnection. Everything else builds on this foundation.
+**Remember**: The #1 priority is preventing DLL crashes that cause "Game closed!" termination. Everything else builds on this foundation.
+
+## Critical Disconnection Paths Identified
+
+Based on comprehensive code analysis (see `docs/CCCaster_Technical_Analysis.md`):
+
+### Path A: Socket Error → DLL Crash → IPC Break → "Game closed!"
+1. Network error (UDP 10054) triggers `socketDisconnected()`
+2. Socket cleanup crashes due to unhandled exceptions
+3. DLL process crashes/exits
+4. IPC pipe breaks between DLL and main process
+5. Main process detects break and shows "Game closed!"
+6. CCCaster terminates
+
+### Path B: delayedStop() Timer → Process Exit
+Triggered by: retry menu, desync detection, RNG errors, socket errors
+
+### Path C: EventManager Failure → Process Exit
+Triggered by: EventManager::stop() causing poll() to return false
+
+### Path D: ProcessManager Timeout → IPC Termination
+Triggered by: game start failures after multiple attempts
+
+**Solution Strategy**: Exception hardening + disconnection interception to prevent DLL crashes while maintaining IPC connection.
+
+- `make release` to compile (NOT just `make`)
+- Reference: `docs/CCCaster_Technical_Analysis.md` for complete technical analysis
