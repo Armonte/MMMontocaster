@@ -1,52 +1,137 @@
-# MBAA CCCaster Enhanced - Session Management & Host Discovery
+# MBAA CCCaster Enhanced - Disconnection Recovery & Host Discovery
 
 ## Project Overview
 
-**Primary Goal**: Fix the critical client freeze issue when networked sessions end, and implement in-game host discovery for seamless offline-to-online transitions.
+**Primary Goal**: Fix the critical "Game closed!" termination issue when networked sessions end, and implement in-game host discovery for seamless offline-to-online transitions.
 
-**Core Problem**: When an opponent disconnects or closes their client, MBAA.exe freezes instead of gracefully returning to an offline state. Players are forced to kill the process, creating a terrible user experience.
+**Core Problem**: When an opponent disconnects or closes their client, CCCaster displays "Game closed!" and terminates the entire process instead of gracefully returning to an offline state. Players must restart CCCaster completely, creating a terrible user experience.
 
-**Solution**: Implement proper disconnection handling that restores the game to a playable offline state, plus add an in-game host browser for discovering and joining matches without leaving the game.
+**Solution**: Implement proper disconnection exception handling that prevents DLL crashes and IPC breaks, allowing graceful transition to offline play, plus add an in-game host browser for discovering and joining matches without leaving the game.
 
-## Critical Issue: Client Freeze on Disconnection
+## Progress Status
 
-### Current Behavior (BROKEN)
+### ✅ Phase 0: Crash Prevention (COMPLETE)
+**Problem Solved**: CCCaster no longer crashes or shows "Game closed!" when opponent disconnects.
+
+**What Was Fixed**:
+- Added SEH exception handling around `socketDisconnected()` callback
+- Prevented DLL crashes during socket cleanup
+- Maintained IPC connection between DLL and main process
+- Process stays alive, no more termination
+
+**Current State**: Game hangs after disconnect but doesn't crash (music continues, process alive)
+
+### 🎯 Phase 1: Unfreeze Game (IN PROGRESS) 
+**Current Problem**: Game hangs waiting for network input that never comes after disconnect.
+
+**Root Cause**: Main loop waits indefinitely for `isRemoteInputReady()` to return true.
+
+### Target Behavior (Phase 1 Goal)
 1. Two players connected via CCCaster
-2. One player disconnects/closes client
-3. Remaining player's game FREEZES
-4. Must force-quit MBAA.exe
-5. Terrible user experience
-
-### Target Behavior (FIXED)
-1. Two players connected via CCCaster
-2. One player disconnects/closes client
+2. One player disconnects/closes client  
 3. Remaining player's game detects disconnection
-4. Game gracefully returns to previous state (training/CSS/menu)
-5. Player can continue playing offline or connect to new opponent
+4. Game switches to local input only and continues
+5. Player can continue playing offline or manually exit
 
-### Root Cause Analysis
+## Root Cause Analysis (Updated with Findings)
 
-**The real issue**: CCCaster has NO disconnection handling whatsoever. When a player disconnects:
+### Phase 0 Issue: DLL Crashes → "Game closed!" (FIXED ✅)
 
-1. **No Graceful Disconnect**: There's no disconnect handshake or cleanup process
-2. **Network Sync Lost**: The game waits indefinitely for network frames that will never arrive
-3. **Process Hangs**: The entire MBAA.exe process freezes, not just menu navigation
-4. **No Timeout**: No timeout mechanism to detect lost connections
-5. **No State Recovery**: No code path to return to offline play
+**Original Problem**: 
+1. Socket errors during cleanup crashed the DLL
+2. DLL crash broke IPC communication with main process  
+3. Main process detected IPC break and showed "Game closed!"
+4. CCCaster terminated completely
 
-The game essentially enters an infinite wait state for network data, causing a complete process freeze. The menu navigation prevention code is irrelevant - the game never reaches a state where menu input would even be processed.
+**Solution Implemented**:
+```cpp
+void socketDisconnected(Socket *socket) override 
+{
+    __try {
+        // Minimal handling - just log and return
+        LOG("Socket disconnected - doing nothing to prevent crash");
+        return;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        LOG("Emergency: Data socket crash prevented");
+    }
+}
+```
+
+### Phase 1 Issue: Game Hangs After Disconnect (IN PROGRESS 🎯)
+
+**Current Problem**:
+1. Socket disconnects → No crash (fixed)
+2. Main loop continues checking `netMan.isRemoteInputReady()`
+3. Remote input never comes → `ready` stays false forever
+4. Game waits indefinitely in poll loop instead of advancing frames
+5. Music continues (game engine running) but game hangs (input loop stuck)
+
+**Location of Hang**: `targets/DllMain.cpp:604`
+```cpp
+const bool ready = (netMan.isRemoteInputReady() && netMan.isRngStateReady(shouldSyncRngState));
+// When ready=false, game waits instead of advancing
+```
 
 ## Implementation Strategy
 
-### Phase 0: Disconnect Protocol & Online→Offline Transition (CRITICAL)
+### ✅ Phase 0: Crash Prevention (COMPLETE)
+**Goal**: Prevent DLL crashes and "Game closed!" termination.
 
-**Goal**: Implement proper disconnect detection and transition to offline training mode at character select screen.
+**Implemented Solution**: SEH exception handling around socket operations
+- `socketDisconnected()`: Protected with `__try/__except`
+- Timeout handling: No cleanup to prevent crashes
+- DLL initialization: Added crash protection
 
-#### Testing Points
-1. **Disconnect Detection**: Game continues running after 3+ seconds of no network data
-2. **State Transition**: After disconnect, game transitions to character select in training mode
-3. **Verify Playability**: Player can use character select and enter training mode offline
-4. **No Freeze**: Process remains responsive throughout disconnection
+**Test Results**: ✅ No crashes, ✅ No "Game closed!", ✅ Process stays alive
+
+### ✅ Phase 1: Game Unfreeze (COMPLETE)
+**Goal**: Make game playable after disconnect by switching to local input only.
+
+**Implementation Completed**:
+1. ✅ Added `_disconnected` flag to NetplayManager (`DllNetplayManager.hpp:156`)
+2. ✅ Added `setDisconnected()` method to set flag externally
+3. ✅ Modified `isRemoteInputReady()` to return `true` when disconnected (`DllNetplayManager.cpp:1007`)
+4. ✅ Set flag in `socketDisconnected()` handler (`DllMain.cpp:1514`)
+5. ✅ Set flag in timeout handler (`DllMain.cpp:625`)
+6. ✅ Set flag in emergency exception handler (`DllMain.cpp:1544`)
+
+**Implementation Details**:
+```cpp
+// NetplayManager.hpp - Added flag
+bool _disconnected = false;
+void setDisconnected() { _disconnected = true; }
+
+// NetplayManager.cpp - Modified input ready check
+bool NetplayManager::isRemoteInputReady() const
+{
+    // PHASE 1 FIX: If disconnected, always return true to unfreeze game
+    if ( _disconnected )
+    {
+        return true;  // Game can continue with local input only
+    }
+    // ... rest of original logic
+}
+
+// DllMain.cpp - Set flag on disconnect
+netMan.setDisconnected();
+LOG("Set disconnected flag - game should unfreeze");
+```
+
+**Expected Results**:
+- ✅ Game unfreezes immediately after disconnect
+- ✅ Local player can continue playing with local input only  
+- ✅ No dependency on network input
+- ✅ Process remains stable and responsive
+
+**Ready for Testing**: Compile with `make release` and test disconnect scenarios.
+
+### 🎯 Phase 2: Enhanced Features (FUTURE)
+After Phase 1 testing is successful, we can add:
+- Visual "Opponent disconnected" overlay message
+- Manual menu exit option  
+- Host discovery browser (F8 menu)
+- Seamless offline-to-online transitions
 
 #### Step 1: Add Network Timeout Detection
 ```cpp

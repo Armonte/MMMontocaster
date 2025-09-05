@@ -620,6 +620,12 @@ struct DllMain
                     LOG ( "Connection timeout detected - doing nothing to prevent crash" );
                     udpLogMain("``TIMEOUT PATH - Connection lost, doing nothing to keep DLL alive");
                     isDisconnecting = true;
+                    
+                    // PHASE 1 FIX: Set disconnected flag to unfreeze game
+                    netMan.setDisconnected();
+                    LOG ( "Set disconnected flag due to timeout - game should unfreeze" );
+                    udpLogMain("``TIMEOUT PATH - Set disconnected flag, game should unfreeze");
+                    
                     // DO NOTHING - just mark that we detected the timeout
                     // This prevents any cleanup that could crash the DLL
                     udpLogMain("``TIMEOUT PATH - Timeout noted, continuing to prevent crash");
@@ -1510,6 +1516,10 @@ struct DllMain
                 // This prevents any socket cleanup that could crash
                 LOG ( "Socket disconnected - doing minimal cleanup to prevent crash" );
                 
+                // PHASE 1 FIX: Set disconnected flag to unfreeze game
+                netMan.setDisconnected();
+                LOG ( "Set disconnected flag - game should unfreeze" );
+                
                 // Don't call any socket cleanup methods - just mark it as gone
                 // The socket destructor will be called eventually, but not in this callback
                 // This should prevent the immediate crash while keeping IPC alive
@@ -1529,6 +1539,11 @@ struct DllMain
             if ( socket == dataSocket.get() )
             {
                 LOG ( "Emergency: Data socket crash prevented - doing nothing" );
+                
+                // PHASE 1 FIX: Set disconnected flag even in emergency case
+                netMan.setDisconnected();
+                LOG ( "Emergency: Set disconnected flag - game should unfreeze" );
+                
                 // Don't even touch the socket pointer - just log and return
             }
         }

@@ -1003,6 +1003,12 @@ void NetplayManager::setBothInputs ( const BothInputs& bothInputs )
 
 bool NetplayManager::isRemoteInputReady() const
 {
+    // PHASE 1 FIX: If disconnected, always return true to unfreeze game
+    if ( _disconnected )
+    {
+        return true;  // Game can continue with local input only
+    }
+    
     if ( _state.value < NetplayState::CharaSelect || _state.value == NetplayState::Skippable
             || _state.value == NetplayState::Loading || _state.value == NetplayState::RetryMenu
          || _state.value == NetplayState::CharaIntro )

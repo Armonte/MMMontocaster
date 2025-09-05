@@ -144,6 +144,9 @@ public:
     
     // Restore the game to offline mode (training at CSS)
     void restoreOfflineGameMode();
+    
+    // Set disconnected flag to unfreeze game (Phase 1 fix)
+    void setDisconnected() { _disconnected = true; }
 
     friend class DllRollbackManager;
 
@@ -151,6 +154,9 @@ private:
 
     // Netplay state
     NetplayState _state;
+    
+    // Flag to indicate network disconnection - used to unfreeze game
+    bool _disconnected = false;
 
     // State of the menu navigation input
     int32_t _targetMenuState = -1;
@@ -213,9 +219,6 @@ private:
     // Delay demo inputs until reset is done
     int demoCountdown = 60;
     int exitCountdown = 0;
-    
-    // Disconnection flag - when true, all input processing is disabled
-    bool _disconnected = false;
 
     // Get the input for the specific NetplayState
     uint16_t getPreInitialInput ( uint8_t player );
