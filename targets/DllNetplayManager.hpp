@@ -33,6 +33,9 @@ public:
 
     // Indicate which player is the remote player
     void setRemotePlayer ( uint8_t player );
+    
+    // Initiate connection to host from already-running game
+    void initiateOnlineConnection ( const std::string& hostIp, uint16_t port );
 
     // Update the current netplay frame
     void updateFrame();

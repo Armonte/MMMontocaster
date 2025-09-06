@@ -121,6 +121,25 @@ bool stopping = false;
 
 NetplayManager* netManPtr = 0;
 
+// Global variable to store target connection info
+static IpAddrPort pendingConnection;
+static bool shouldInitiateConnection = false;
+
+// Global function for initiating online connection from ImGui
+void initiateOnlineConnection(const std::string& hostIp, uint16_t port)
+{
+    if (netManPtr && mainApp) {
+        LOG("Initiating connection to %s:%d", hostIp.c_str(), port);
+        // Store connection info for main loop to process
+        pendingConnection = IpAddrPort(hostIp, port);
+        shouldInitiateConnection = true;
+        // Call the netplay manager to prepare
+        netManPtr->initiateOnlineConnection(hostIp, port);
+    } else {
+        LOG("ERROR: netManPtr or mainApp is null, cannot initiate connection");
+    }
+}
+
 struct DllMain
         : public Main
         , public RefChangeMonitor<Variable, uint32_t>::Owner
@@ -596,6 +615,38 @@ struct DllMain
                 return;
             }
 
+            // Handle pending connection from F8 menu
+            if ( shouldInitiateConnection && !dataSocket )
+            {
+                shouldInitiateConnection = false;
+                LOG ( "Processing F8 connection request to %s:%d", 
+                      pendingConnection.addr.c_str(), pendingConnection.port );
+                
+                // Set client mode for connection
+                clientMode = ClientMode::Client;
+                netMan.config.mode = ClientMode::Client;
+                netMan.config.hostPlayer = 1;  // Host is player 1, we're player 2
+                
+                // Create TCP control socket for synchronization (like normal client)
+                serverCtrlSocket = SmartSocket::listenTCP ( this, 0 );
+                LOG ( "F8 serverCtrlSocket=%08x", serverCtrlSocket.get() );
+                
+                // Create UDP connection to host
+                dataSocket = SmartSocket::connectUDP ( this, pendingConnection );
+                LOG ( "F8 dataSocket=%08x", dataSocket.get() );
+                
+                // Set remote player
+                remotePlayer = 1;  // Host is player 1 
+                localPlayer = 2;   // We're player 2
+                netMan.setRemotePlayer ( remotePlayer );
+                
+                // Start connection timer
+                initialTimer.reset ( new Timer ( this ) );
+                initialTimer->start ( INITIAL_CONNECT_TIMEOUT );
+                
+                LOG ( "F8 connection initiated - waiting for socket to connect" );
+            }
+
             // Don't need to wait for anything in local modes
             if ( clientMode.isLocal() || lazyDisconnect )
                 break;
@@ -625,6 +676,11 @@ struct DllMain
                     netMan.setDisconnected();
                     LOG ( "Set disconnected flag due to timeout - game should unfreeze" );
                     udpLogMain("``TIMEOUT PATH - Set disconnected flag, game should unfreeze");
+                    
+                    // PHASE 1 ENHANCEMENT: Transition to training mode CSS
+                    netMan.restoreOfflineGameMode();
+                    LOG ( "Called restoreOfflineGameMode due to timeout - should transition to training CSS" );
+                    udpLogMain("``TIMEOUT PATH - Called restoreOfflineGameMode");
                     
                     // DO NOTHING - just mark that we detected the timeout
                     // This prevents any cleanup that could crash the DLL
@@ -1520,6 +1576,10 @@ struct DllMain
                 netMan.setDisconnected();
                 LOG ( "Set disconnected flag - game should unfreeze" );
                 
+                // PHASE 1 ENHANCEMENT: Transition to training mode CSS
+                netMan.restoreOfflineGameMode();
+                LOG ( "Called restoreOfflineGameMode - should transition to training CSS" );
+                
                 // Don't call any socket cleanup methods - just mark it as gone
                 // The socket destructor will be called eventually, but not in this callback
                 // This should prevent the immediate crash while keeping IPC alive
@@ -1543,6 +1603,14 @@ struct DllMain
                 // PHASE 1 FIX: Set disconnected flag even in emergency case
                 netMan.setDisconnected();
                 LOG ( "Emergency: Set disconnected flag - game should unfreeze" );
+                
+                // PHASE 1 ENHANCEMENT: Try to transition to training CSS even in emergency
+                try {
+                    netMan.restoreOfflineGameMode();
+                    LOG ( "Emergency: Called restoreOfflineGameMode - should transition to training CSS" );
+                } catch (...) {
+                    LOG ( "Emergency: restoreOfflineGameMode failed - continuing anyway" );
+                }
                 
                 // Don't even touch the socket pointer - just log and return
             }

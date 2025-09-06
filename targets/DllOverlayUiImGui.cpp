@@ -58,6 +58,9 @@ void initImGui( IDirect3DDevice9 *device ) {
     bool done = false;
 }
 
+// Forward declaration for network initialization
+extern void initiateOnlineConnection(const std::string& hostIp, uint16_t port);
+
 void EndScene ( IDirect3DDevice9 *device ) {
 #ifdef LOGGING
     if ( ! initalizedDirectX )
@@ -67,46 +70,56 @@ void EndScene ( IDirect3DDevice9 *device ) {
     doEndScene = false;
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
-    bool show_demo_window = true;
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    
+    // Update mouse state
     for (int i = 0; i < 5; i++) ImGui::GetIO().MouseDown[i] = false;
-
     if ( GetAsyncKeyState(VK_LBUTTON) != 0 ) {
         ImGui::GetIO().MouseDown[0] = true;
     }
+    
     ImGui::NewFrame();
+    
+    // Host Browser Window
+    if (DllOverlayUi::isHostBrowserOpen())
     {
-        static float f = 0.0f;
-        static int counter = 0;
-
-        ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-
-        ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-        ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-
-        ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-        ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-
-        if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-            counter++;
-        ImGui::SameLine();
-        ImGui::Text("counter = %d", counter);
-        bool isHovered = ImGui::IsItemHovered();
-        bool isFocused = ImGui::IsItemFocused();
-
-        ImVec2 mousePositionAbsolute = ImGui::GetMousePos();
-        ImVec2 screenPositionAbsolute = ImGui::GetItemRectMin();
-        ImVec2 mousePositionRelative = ImVec2(mousePositionAbsolute.x - screenPositionAbsolute.x, mousePositionAbsolute.y - screenPositionAbsolute.y);
-        ImGui::Text("Is mouse over screen? %s", isHovered ? "Yes" : "No");
-        ImGui::Text("Is screen focused? %s", isFocused ? "Yes" : "No");
-        ImGui::Text("Position: %f, %f", mousePositionRelative.x, mousePositionRelative.y);
-
-        ImGui::Text("h = %d %d", ImGui::IsKeyPressed((ImGuiKey)'h'), GetAsyncKeyState(0x48));
-        ImGui::Text("h = %d %d", ImGui::IsKeyPressed((ImGuiKey)'h'), GetAsyncKeyState(VK_LBUTTON));
-        ImGui::Text("Mouse clicked: %s", ImGui::IsMouseDown(ImGuiMouseButton_Left) ? "Yes" : "No");
-
-        ImGui::Text("Mouse clicked: %s", ImGui::IsMouseDown(ImGuiMouseButton_Left) ? "Yes" : "No");
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+        static char hostIp[256] = "127.0.0.1";
+        static int hostPort = 7500;
+        static bool connecting = false;
+        static std::string statusMessage = "Not connected";
+        
+        ImGui::Begin("Host Browser (F8 to close)", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        
+        ImGui::Text("Connect to a waiting host:");
+        ImGui::Separator();
+        
+        ImGui::InputText("Host IP", hostIp, sizeof(hostIp));
+        ImGui::InputInt("Port", &hostPort);
+        
+        ImGui::Separator();
+        
+        if (!connecting && ImGui::Button("Connect"))
+        {
+            connecting = true;
+            statusMessage = "Connecting...";
+            // Call the network initialization function
+            initiateOnlineConnection(std::string(hostIp), hostPort);
+        }
+        
+        if (connecting && ImGui::Button("Cancel"))
+        {
+            connecting = false;
+            statusMessage = "Connection cancelled";
+        }
+        
+        ImGui::Text("Status: %s", statusMessage.c_str());
+        
+        ImGui::Separator();
+        ImGui::Text("Instructions:");
+        ImGui::Text("1. Host player starts CCCaster normally");
+        ImGui::Text("2. Enter host's IP and port");
+        ImGui::Text("3. Click Connect to join");
+        ImGui::Text("4. Game will reset to intro and sync");
+        
         ImGui::End();
     }
     ImGui::EndFrame();

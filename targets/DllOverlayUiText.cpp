@@ -130,6 +130,19 @@ void toggle()
         enable();
 }
 
+// Host browser state (for ImGui window)
+static bool showHostBrowser = false;
+
+void toggleHostBrowser()
+{
+    showHostBrowser = !showHostBrowser;
+}
+
+bool isHostBrowserOpen()
+{
+    return showHostBrowser;
+}
+
 static inline int getTextHeight ( const array<string, 3>& newText )
 {
     int height = 0;

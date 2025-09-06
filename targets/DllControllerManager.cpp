@@ -14,6 +14,7 @@ using namespace std;
 #define VK_TOGGLE_TRIAL_MENU ( VK_F3 )
 #define VK_TOGGLE_OVERLAY ( VK_F4 )
 #define VK_ENABLE_FRAMESTEP ( VK_F5 )
+#define VK_TOGGLE_HOST_BROWSER ( VK_F8 )
 
 extern bool stopping;
 
@@ -53,6 +54,7 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
 
     bool toggleTrialMenu = false;
     bool toggleOverlay = false;
+    bool toggleHostBrowser = false;
 
     // // Automatically show overlay when a controller is attached during chara select
     // if ( _controllerAttached )
@@ -76,6 +78,10 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
     if ( KeyboardState::isPressed ( VK_ENABLE_FRAMESTEP ) )
     {
         framestepEnabled = true;
+    }
+    if ( KeyboardState::isPressed ( VK_TOGGLE_HOST_BROWSER ) )
+    {
+        toggleHostBrowser = true;
     }
 
     for ( Controller *controller : _allControllers )
@@ -204,6 +210,12 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
             // Disable overlay
             DllOverlayUi::disable();
         }
+    }
+    else if ( toggleHostBrowser )
+    {
+        toggleHostBrowser = false;
+        // Toggle the host browser UI
+        DllOverlayUi::toggleHostBrowser();
     }
 
     // Only update player controls when the overlay is NOT enabled
