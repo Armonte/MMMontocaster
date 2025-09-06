@@ -128,15 +128,26 @@ static bool shouldInitiateConnection = false;
 // Global function for initiating online connection from ImGui
 void initiateOnlineConnection(const std::string& hostIp, uint16_t port)
 {
+    char debugMsg[256];
+    sprintf(debugMsg, "```INIT_CONNECTION: Function called for %s:%d", hostIp.c_str(), port);
+    udpLogMain(debugMsg);
+    
     if (netManPtr && mainApp) {
         LOG("Initiating connection to %s:%d", hostIp.c_str(), port);
+        udpLogMain("```INIT_CONNECTION: netManPtr and mainApp are valid - proceeding");
+        
         // Store connection info for main loop to process
         pendingConnection = IpAddrPort(hostIp, port);
         shouldInitiateConnection = true;
+        
+        sprintf(debugMsg, "```INIT_CONNECTION: Set shouldInitiateConnection=true for %s:%d", hostIp.c_str(), port);
+        udpLogMain(debugMsg);
+        
         // Call the netplay manager to prepare
         netManPtr->initiateOnlineConnection(hostIp, port);
     } else {
         LOG("ERROR: netManPtr or mainApp is null, cannot initiate connection");
+        udpLogMain("```INIT_CONNECTION: ERROR - netManPtr or mainApp is NULL!");
     }
 }
 
@@ -615,36 +626,28 @@ struct DllMain
                 return;
             }
 
-            // Handle pending connection from F8 menu
-            if ( shouldInitiateConnection && !dataSocket )
+            // Handle pending connection from F1 menu
+            if ( shouldInitiateConnection )
             {
                 shouldInitiateConnection = false;
-                LOG ( "Processing F8 connection request to %s:%d", 
+                LOG ( "F1: Sending connection request to main process for %s:%d", 
                       pendingConnection.addr.c_str(), pendingConnection.port );
                 
-                // Set client mode for connection
-                clientMode = ClientMode::Client;
-                netMan.config.mode = ClientMode::Client;
-                netMan.config.hostPlayer = 1;  // Host is player 1, we're player 2
+                // UDP log for debugging
+                char debugMsg[256];
+                sprintf(debugMsg, "```DLL_F1: About to send IPC message for %s:%d", 
+                        pendingConnection.addr.c_str(), pendingConnection.port);
+                udpLogMain(debugMsg);
                 
-                // Create TCP control socket for synchronization (like normal client)
-                serverCtrlSocket = SmartSocket::listenTCP ( this, 0 );
-                LOG ( "F8 serverCtrlSocket=%08x", serverCtrlSocket.get() );
+                // FIX: Use mainApp->procMan to access the ProcessManager instance
+                // Simply send the target address to main process via IPC
+                // Let CCCaster's main process handle the connection like normal
+                udpLogMain("```DLL_F1: About to call mainApp->procMan.ipcSend()");
+                mainApp->procMan.ipcSend ( pendingConnection );
+                udpLogMain("```DLL_F1: mainApp->procMan.ipcSend() call completed");
                 
-                // Create UDP connection to host
-                dataSocket = SmartSocket::connectUDP ( this, pendingConnection );
-                LOG ( "F8 dataSocket=%08x", dataSocket.get() );
-                
-                // Set remote player
-                remotePlayer = 1;  // Host is player 1 
-                localPlayer = 2;   // We're player 2
-                netMan.setRemotePlayer ( remotePlayer );
-                
-                // Start connection timer
-                initialTimer.reset ( new Timer ( this ) );
-                initialTimer->start ( INITIAL_CONNECT_TIMEOUT );
-                
-                LOG ( "F8 connection initiated - waiting for socket to connect" );
+                LOG ( "F1: Connection request sent to main process" );
+                udpLogMain("```DLL_F1: IPC message sent to MainApp - should see MAINAPP messages now");
             }
 
             // Don't need to wait for anything in local modes

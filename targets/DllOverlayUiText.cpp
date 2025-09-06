@@ -55,7 +55,7 @@ ENUM ( State, Disabled, Disabling, Enabled, Enabling );
 
 static State state = State::Disabled;
 
-ENUM ( Mode, None, Trial, Mapping );
+ENUM ( Mode, None, Trial, Mapping, HostBrowser );
 
 static Mode mode = Mode::None;
 
@@ -130,17 +130,14 @@ void toggle()
         enable();
 }
 
-// Host browser state (for ImGui window)
-static bool showHostBrowser = false;
-
-void toggleHostBrowser()
+void setHostBrowser()
 {
-    showHostBrowser = !showHostBrowser;
+    mode = Mode::HostBrowser;
 }
 
-bool isHostBrowserOpen()
+bool isHostBrowser()
 {
-    return showHostBrowser;
+    return mode == Mode::HostBrowser;
 }
 
 static inline int getTextHeight ( const array<string, 3>& newText )

@@ -79,49 +79,7 @@ void EndScene ( IDirect3DDevice9 *device ) {
     
     ImGui::NewFrame();
     
-    // Host Browser Window
-    if (DllOverlayUi::isHostBrowserOpen())
-    {
-        static char hostIp[256] = "127.0.0.1";
-        static int hostPort = 7500;
-        static bool connecting = false;
-        static std::string statusMessage = "Not connected";
-        
-        ImGui::Begin("Host Browser (F8 to close)", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        
-        ImGui::Text("Connect to a waiting host:");
-        ImGui::Separator();
-        
-        ImGui::InputText("Host IP", hostIp, sizeof(hostIp));
-        ImGui::InputInt("Port", &hostPort);
-        
-        ImGui::Separator();
-        
-        if (!connecting && ImGui::Button("Connect"))
-        {
-            connecting = true;
-            statusMessage = "Connecting...";
-            // Call the network initialization function
-            initiateOnlineConnection(std::string(hostIp), hostPort);
-        }
-        
-        if (connecting && ImGui::Button("Cancel"))
-        {
-            connecting = false;
-            statusMessage = "Connection cancelled";
-        }
-        
-        ImGui::Text("Status: %s", statusMessage.c_str());
-        
-        ImGui::Separator();
-        ImGui::Text("Instructions:");
-        ImGui::Text("1. Host player starts CCCaster normally");
-        ImGui::Text("2. Enter host's IP and port");
-        ImGui::Text("3. Click Connect to join");
-        ImGui::Text("4. Game will reset to intro and sync");
-        
-        ImGui::End();
-    }
+    // Host Browser removed - now uses text overlay system like F4 menu
     ImGui::EndFrame();
     ImGui::Render();
     ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());

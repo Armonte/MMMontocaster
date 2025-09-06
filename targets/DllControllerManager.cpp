@@ -14,7 +14,7 @@ using namespace std;
 #define VK_TOGGLE_TRIAL_MENU ( VK_F3 )
 #define VK_TOGGLE_OVERLAY ( VK_F4 )
 #define VK_ENABLE_FRAMESTEP ( VK_F5 )
-#define VK_TOGGLE_HOST_BROWSER ( VK_F8 )
+#define VK_TOGGLE_HOST_BROWSER ( VK_F1 )
 
 extern bool stopping;
 
@@ -214,8 +214,29 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
     else if ( toggleHostBrowser )
     {
         toggleHostBrowser = false;
-        // Toggle the host browser UI
-        DllOverlayUi::toggleHostBrowser();
+        
+        if ( ! DllOverlayUi::isEnabled() )
+        {
+            // Enable keyboard events, this effectively eats all keyboard inputs for the window
+            KeyboardManager::get().keyboardWindow = DllHacks::windowHandle;
+            KeyboardManager::get().matchedKeys.clear();
+            KeyboardManager::get().ignoredKeys.clear();
+            KeyboardManager::get().hook ( this, true );
+
+            // Disable Escape to exit
+            AsmHacks::enableEscapeToExit = false;
+
+            // Enable overlay with host browser mode
+            DllOverlayUi::setHostBrowser();
+            DllOverlayUi::enable();
+        }
+        else if ( DllOverlayUi::isHostBrowser() )
+        {
+            // Disable overlay and keyboard
+            KeyboardManager::get().unhook();
+            AsmHacks::enableEscapeToExit = true;
+            DllOverlayUi::disable();
+        }
     }
 
     // Only update player controls when the overlay is NOT enabled
@@ -256,6 +277,10 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
     else if ( DllOverlayUi::isMapping() )
     {
         handleMappingOverlay();
+    }
+    else if ( DllOverlayUi::isHostBrowser() )
+    {
+        handleHostBrowserOverlay();
     }
 }
 
@@ -705,6 +730,146 @@ void DllControllerManager::handleTrialMenuOverlay()
     } else {
         DllOverlayUi::updateSelector ( 1 );
     }
+    ControllerManager::get().savePrevStates();
+}
+
+void DllControllerManager::handleHostBrowserOverlay()
+{
+    static int selectedPlayer = 0;
+    static bool initialized = false;
+    
+    // Player list with example host
+    struct Player {
+        string name;
+        string ip;
+        int port;
+        string status;
+    };
+    
+    static vector<Player> players;
+    
+    // Initialize player list once
+    if (!initialized) {
+        players.push_back({"Example Host", "99.66.54.36", 7500, "Waiting"});
+        players.push_back({"Test Player 2", "127.0.0.1", 7501, "In Game"});  
+        players.push_back({"Local Host", "127.0.0.1", 7500, "Training"});
+        initialized = true;
+    }
+    
+    array<string, 3> text;
+    text[0] = "Host Browser\n";
+    text[0] += "Press Up/Down to select player\n";
+    text[0] += "Press Right/A to connect\n";
+    text[0] += "Press Left/B to exit\n";
+    text[0] += "\n";
+    
+    text[1] = "Available Players:\n\n";
+    
+    // Build the player list
+    text[2] = "";
+    for (size_t i = 0; i < players.size(); i++) {
+        if (i == selectedPlayer) {
+            text[2] += "> ";
+        } else {
+            text[2] += "  ";
+        }
+        text[2] += players[i].name + " (" + players[i].status + ")\n";
+        text[2] += "  " + players[i].ip + ":" + to_string(players[i].port) + "\n\n";
+    }
+    
+    text[2] += "Exit";
+    
+    // Handle input
+    for ( Controller *controller : _allControllers )
+    {
+        if ( !controller || controller->isMapping() )
+            continue;
+            
+        const uint16_t inputs = getInput( controller );
+        
+        // Navigation  
+        if ( ( controller->isJoystick() && isDirectionPressed ( controller, 8 ) )
+             || ( controller->isKeyboard() && KeyboardState::isPressed ( VK_UP ) ) )
+        {
+            if ( selectedPlayer > 0 ) {
+                selectedPlayer--;
+            }
+        }
+        else if ( ( controller->isJoystick() && isDirectionPressed ( controller, 2 ) )
+                  || ( controller->isKeyboard() && KeyboardState::isPressed ( VK_DOWN ) ) )
+        {
+            if ( selectedPlayer < (int)players.size() ) { // includes "Exit" option
+                selectedPlayer++;
+            }
+        }
+        
+        // Selection/editing
+        else if ( ( controller->isJoystick() && isDirectionPressed ( controller, 6 ) )
+                  || ( controller->isKeyboard() && KeyboardState::isPressed ( VK_RIGHT ) )
+                  || ( controller->isJoystick() && isButtonPressed ( controller, CC_BUTTON_A ) )
+                  || ( controller->isKeyboard() && isButtonPressed( controller, CC_BUTTON_A ) ) )
+        {
+            if ( selectedPlayer < (int)players.size() ) // Connect to selected player
+            {
+                Player& selectedHost = players[selectedPlayer];
+                
+                // UDP log for debugging
+                extern void udpLogMain(const char* message);
+                char debugMsg[256];
+                sprintf(debugMsg, "```F1_MENU: Host selected - %s (%s:%d)", 
+                        selectedHost.name.c_str(), selectedHost.ip.c_str(), selectedHost.port);
+                udpLogMain(debugMsg);
+                
+                // Call the connection function
+                extern void initiateOnlineConnection(const std::string& hostIp, uint16_t port);
+                udpLogMain("```F1_MENU: About to call initiateOnlineConnection()");
+                initiateOnlineConnection(selectedHost.ip, selectedHost.port);
+                udpLogMain("```F1_MENU: initiateOnlineConnection() call completed");
+                
+                // Show connecting message
+                DllOverlayUi::showMessage("Connecting to " + selectedHost.name + " (" + selectedHost.ip + ":" + to_string(selectedHost.port) + ")");
+                
+                // Disable overlay
+                KeyboardManager::get().unhook();
+                AsmHacks::enableEscapeToExit = true;
+                DllOverlayUi::disable();
+            }
+            else // Exit option
+            {
+                // Disable overlay
+                KeyboardManager::get().unhook();
+                AsmHacks::enableEscapeToExit = true;
+                DllOverlayUi::disable();
+            }
+        }
+        
+        // Cancel
+        else if ( ( controller->isJoystick() && isDirectionPressed ( controller, 4 ) )
+                  || ( controller->isKeyboard() && KeyboardState::isPressed ( VK_LEFT ) )
+                  || ( controller->isJoystick() && isButtonPressed ( controller, CC_BUTTON_B ) )
+                  || ( controller->isKeyboard() && isButtonPressed( controller, CC_BUTTON_B ) ) )
+        {
+            // Disable overlay  
+            KeyboardManager::get().unhook();
+            AsmHacks::enableEscapeToExit = true;
+            DllOverlayUi::disable();
+        }
+    }
+    
+    // Update selector position  
+    string selectorText;
+    if ( selectedPlayer < (int)players.size() ) {
+        Player& selected = players[selectedPlayer];
+        selectorText = selected.name + " (" + selected.status + ")";
+    } else {
+        selectorText = "Exit";
+    }
+    
+    DllOverlayUi::updateText( text );
+    // Position selector based on selected player (each player takes 3 lines)
+    int selectorLine = selectedPlayer < (int)players.size() ? selectedPlayer * 3 : players.size() * 3 + 1;
+    DllOverlayUi::updateSelector( 1, selectorLine, selectorText );
+    
     ControllerManager::get().savePrevStates();
 }
 

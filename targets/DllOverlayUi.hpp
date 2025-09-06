@@ -21,9 +21,9 @@ void disable();
 
 void toggle();
 
-void toggleHostBrowser();
+void setHostBrowser();
 
-bool isHostBrowserOpen();
+bool isHostBrowser();
 
 bool isEnabled();
 

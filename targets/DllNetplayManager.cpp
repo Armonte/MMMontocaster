@@ -1475,32 +1475,17 @@ void NetplayManager::initiateOnlineConnection ( const std::string& hostIp, uint1
         _indexedFrame = {{ 0, 0 }};
         _startWorldTime = 0;
         
-        // Step 3: Reset to intro splash (game mode 3) for sync
-        uint32_t* gameModeAddr = CC_GAME_MODE_ADDR;
-        uint8_t* newSceneFlagAddr = (uint8_t*) 0x0055dec3;  // g_NewSceneFlag
+        // Step 3: Prepare for network synchronization (no scene reset!)
+        LOG ( "Preparing network state for connection to %s:%d", hostIp.c_str(), port );
+        udpLog ( "```OFFLINE->ONLINE: Preparing for network sync" );
         
-        LOG ( "Resetting to intro splash (mode 3) for sync" );
-        udpLog ( "```OFFLINE->ONLINE: Resetting to intro splash" );
-        
-        *gameModeAddr = 3;  // Intro splash screen
-        *newSceneFlagAddr = 1;  // Trigger scene transition
-        
-        // Step 4: Set up network connection
-        // Note: In real implementation, we'd need access to the socket manager
-        // For now, this is a placeholder showing what needs to happen:
-        LOG ( "Would connect UDP socket to %s:%d here", hostIp.c_str(), port );
-        udpLog ( "```OFFLINE->ONLINE: Connection initiated - need socket implementation" );
-        
-        // Step 5: Set state to PreInitial (mimics fresh launch)
+        // Step 4: Set state to PreInitial for CCCaster sync protocol
         setState ( NetplayState::PreInitial );
         
-        // Step 6: The normal CCCaster flow will now:
-        // - Skip frames during PreInitial/Initial (*CC_SKIP_FRAMES_ADDR = 1)
-        // - Mash CC_BUTTON_CONFIRM through intros
-        // - Both clients sync and arrive at CSS together
-        
-        LOG ( "Connection initiated - waiting for sync with host" );
-        udpLog ( "```OFFLINE->ONLINE: State set to PreInitial, waiting for sync" );
+        // MainApp will handle actual TCP connection via SmartSocket::connectTCP
+        // Once connected, CCCaster's normal sync protocol will take over
+        LOG ( "Network state prepared - MainApp will handle TCP connection" );
+        udpLog ( "```OFFLINE->ONLINE: Ready for MainApp to establish connection" );
         
     } catch ( ... ) {
         LOG ( "Error in initiateOnlineConnection" );

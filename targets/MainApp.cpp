@@ -282,6 +282,23 @@ struct MainApp
         }
         else
         {
+            // UDP debug for normal client connection comparison
+            static SOCKET udpSock = INVALID_SOCKET;
+            if (udpSock == INVALID_SOCKET) {
+                udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+            }
+            if (udpSock != INVALID_SOCKET) {
+                struct sockaddr_in debugAddr;
+                debugAddr.sin_family = AF_INET;
+                debugAddr.sin_port = htons(17474);
+                debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                
+                char debugMsg[256];
+                sprintf(debugMsg, "```NORMAL_CLIENT: Starting normal CCCaster client connection to %s:%d", 
+                       address.addr.c_str(), address.port);
+                sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+            }
+            
             ctrlSocket = SmartSocket::connectTCP ( this, address, options[Options::Tunnel] );
             LOG ( "ctrlSocket=%08x", ctrlSocket.get() );
 
@@ -366,6 +383,23 @@ struct MainApp
 
     void gotVersionConfig ( Socket *socket, const VersionConfig& versionConfig )
     {
+        // UDP debug for F1 connection protocol
+        static SOCKET udpSock = INVALID_SOCKET;
+        if (udpSock == INVALID_SOCKET) {
+            udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+        }
+        if (udpSock != INVALID_SOCKET) {
+            struct sockaddr_in debugAddr;
+            debugAddr.sin_family = AF_INET;
+            debugAddr.sin_port = htons(17474);
+            debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+            
+            char debugMsg[256];
+            sprintf(debugMsg, "```MAINAPP: gotVersionConfig from host - clientMode=%d (F1=%s)", 
+                   (int)clientMode.value, (clientMode.value == ClientMode::Client) ? "CLIENT" : "OTHER");
+            sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+        }
+        
         const Version RemoteVersion = versionConfig.version;
 
         LOG ( "LocalVersion='%s'; revision='%s'; buildTime='%s'",
@@ -444,12 +478,54 @@ struct MainApp
             LOG ( "serverDataSocket=%08x", serverDataSocket.get() );
         }
 
+        // FIX: Populate InitialConfig with proper values for F1 connection
+        initialConfig.mode = clientMode;  // Set our client mode (should be Client)
+        initialConfig.localName = "F1Player";  // Set a player name so host can see us
+        initialConfig.winCount = 2;  // Default win count
+        
+        // Set dataPort to 0 initially - host will tell us the correct port
+        initialConfig.dataPort = 0;
+        initialConfig.remoteName = "";  // Will be filled by host
+        
+        // DEBUG: Log what InitialConfig we're sending to the host
+        if (udpSock != INVALID_SOCKET) {
+            struct sockaddr_in debugAddr;
+            debugAddr.sin_family = AF_INET;
+            debugAddr.sin_port = htons(17474);
+            debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+            
+            char debugMsg[512];
+            sprintf(debugMsg, "```MAINAPP: Sending FIXED InitialConfig - localName='%s' remoteName='%s' dataPort=%d winCount=%d mode=%d", 
+                   initialConfig.localName.c_str(), initialConfig.remoteName.c_str(), 
+                   initialConfig.dataPort, initialConfig.winCount, (int)initialConfig.mode.value);
+            sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+        }
+
         initialConfig.invalidate();
         ctrlSocket->send ( initialConfig );
     }
 
     void gotInitialConfig ( const InitialConfig& initialConfig )
     {
+        // DEBUG: Log what InitialConfig we received from the host
+        static SOCKET udpSock = INVALID_SOCKET;
+        if (udpSock == INVALID_SOCKET) {
+            udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+        }
+        if (udpSock != INVALID_SOCKET) {
+            struct sockaddr_in debugAddr;
+            debugAddr.sin_family = AF_INET;
+            debugAddr.sin_port = htons(17474);
+            debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+            
+            char debugMsg[512];
+            sprintf(debugMsg, "```MAINAPP: Received InitialConfig from host - localName='%s' remoteName='%s' dataPort=%d winCount=%d mode=%d (isReady=%s)", 
+                   initialConfig.localName.c_str(), initialConfig.remoteName.c_str(), 
+                   initialConfig.dataPort, initialConfig.winCount, (int)initialConfig.mode.value,
+                   isInitialConfigReady ? "TRUE" : "FALSE");
+            sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+        }
+        
         if ( ! isInitialConfigReady )
         {
             isInitialConfigReady = true;
@@ -501,6 +577,23 @@ struct MainApp
 
     void gotPingStats ( const PingStats& pingStats )
     {
+        // UDP debug for pinger activity
+        static SOCKET udpSock = INVALID_SOCKET;
+        if (udpSock == INVALID_SOCKET) {
+            udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+        }
+        if (udpSock != INVALID_SOCKET) {
+            struct sockaddr_in debugAddr;
+            debugAddr.sin_family = AF_INET;
+            debugAddr.sin_port = htons(17474);
+            debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+            
+            char debugMsg[256];
+            sprintf(debugMsg, "```PINGER: gotPingStats - isHost=%s, starting pinger", 
+                   clientMode.isHost() ? "TRUE" : "FALSE");
+            sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+        }
+        
         this->pingStats = pingStats;
 
         if ( clientMode.isHost() )
@@ -1003,15 +1096,53 @@ struct MainApp
     void socketConnected ( Socket *socket ) override
     {
         LOG ( "socketConnected ( %08x )", socket );
+        
+        // UDP debug for F1 connection
+        static SOCKET udpSock = INVALID_SOCKET;
+        if (udpSock == INVALID_SOCKET) {
+            udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+        }
+        if (udpSock != INVALID_SOCKET) {
+            struct sockaddr_in debugAddr;
+            debugAddr.sin_family = AF_INET;
+            debugAddr.sin_port = htons(17474);
+            debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+            
+            char debugMsg[256];
+            sprintf(debugMsg, "```MAINAPP: socketConnected callback - socket=%08x", (unsigned int)socket);
+            sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+        }
 
         if ( socket == ctrlSocket.get() )
         {
             LOG ( "ctrlSocket connected!" );
+            
+            if (udpSock != INVALID_SOCKET) {
+                struct sockaddr_in debugAddr;
+                debugAddr.sin_family = AF_INET;
+                debugAddr.sin_port = htons(17474);
+                debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                
+                char debugMsg[256];
+                strcpy(debugMsg, "```MAINAPP: ctrlSocket CONNECTED! - Sending VersionConfig");
+                sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+            }
 
             ASSERT ( ctrlSocket.get() != 0 );
             ASSERT ( ctrlSocket->isConnected() == true );
 
             ctrlSocket->send ( new VersionConfig ( clientMode ) );
+            
+            if (udpSock != INVALID_SOCKET) {
+                struct sockaddr_in debugAddr;
+                debugAddr.sin_family = AF_INET;
+                debugAddr.sin_port = htons(17474);
+                debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                
+                char debugMsg[256];
+                strcpy(debugMsg, "```MAINAPP: VersionConfig sent - handshake initiated");
+                sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+            }
         }
         else if ( socket == dataSocket.get() )
         {
@@ -1074,6 +1205,26 @@ struct MainApp
     void socketRead ( Socket *socket, const MsgPtr& msg, const IpAddrPort& address ) override
     {
         LOG ( "socketRead ( %08x, %s, %s )", socket, msg, address );
+        
+        // UDP debug for F1 connection protocol
+        static SOCKET udpSock = INVALID_SOCKET;
+        if (udpSock == INVALID_SOCKET) {
+            udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+        }
+        if (udpSock != INVALID_SOCKET && socket == ctrlSocket.get()) {
+            struct sockaddr_in debugAddr;
+            debugAddr.sin_family = AF_INET;
+            debugAddr.sin_port = htons(17474);
+            debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+            
+            char debugMsg[256];
+            if (msg.get()) {
+                sprintf(debugMsg, "```MAINAPP: socketRead from HOST - msgType=%d", (int)msg->getMsgType());
+            } else {
+                strcpy(debugMsg, "```MAINAPP: socketRead from HOST - NULL message");
+            }
+            sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+        }
 
         if ( socket == uiRecvSocket.get() && !msg.get() )
         {
@@ -1208,6 +1359,20 @@ struct MainApp
         if ( ! msg.get() )
             return;
 
+        // UDP log for debugging all IPC messages
+        static SOCKET udpSock = INVALID_SOCKET;
+        if (udpSock == INVALID_SOCKET) {
+            udpSock = socket(AF_INET, SOCK_DGRAM, 0);
+        }
+        if (udpSock != INVALID_SOCKET) {
+            struct sockaddr_in addr;
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons(17474);
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+            std::string msgStr = "```MAINAPP_IPC: Received message type " + std::to_string((int)msg->getMsgType());
+            sendto(udpSock, msgStr.c_str(), msgStr.length(), 0, (struct sockaddr*)&addr, sizeof(addr));
+        }
+
         switch ( msg->getMsgType() )
         {
             case MsgType::ErrorMessage:
@@ -1222,7 +1387,76 @@ struct MainApp
 
             case MsgType::IpAddrPort:
                 if ( ctrlSocket && ctrlSocket->isConnected() )
+                {
                     ctrlSocket->send ( msg );
+                }
+                else
+                {
+                    // F1 connection request - ACTUALLY connect now
+                    IpAddrPort targetHost = msg->getAs<IpAddrPort>();
+                    LOG ( "F1: Received connection request to %s:%d", targetHost.addr.c_str(), targetHost.port );
+                    
+                    // UDP logging for debugging (visible in release builds)
+                    static SOCKET udpSock = INVALID_SOCKET;
+                    if (udpSock == INVALID_SOCKET) {
+                        udpSock = socket(AF_INET, SOCK_DGRAM, 0);
+                    }
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in addr;
+                        addr.sin_family = AF_INET;
+                        addr.sin_port = htons(17474);
+                        addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        std::string msg = "```MAINAPP: F1 connection request received for " + targetHost.addr + ":" + std::to_string(targetHost.port);
+                        sendto(udpSock, msg.c_str(), msg.length(), 0, (struct sockaddr*)&addr, sizeof(addr));
+                    }
+                    
+                    // Set client mode and target address (like normal UI does)
+                    clientMode.value = ClientMode::Client;
+                    address = targetHost;
+                    
+                    // CRITICAL FIX: Initialize pinger for F1 connections (normally done in constructor)
+                    pinger.owner = this;
+                    pinger.pingInterval = PING_INTERVAL;
+                    pinger.numPings = NUM_PINGS;
+                    
+                    // Manual TCP connection (startNetplay() expects to control MBAA.exe launch)
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char msg[256];
+                        strcpy(msg, "```MAINAPP: F1 using manual connection - startNetplay() expects to launch MBAA");
+                        sendto(udpSock, msg, strlen(msg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                    }
+                    
+                    // Create TCP connection exactly like startNetplay() does for clients
+                    ctrlSocket = SmartSocket::connectTCP ( this, address, options[Options::Tunnel] );
+                    LOG ( "ctrlSocket=%08x", ctrlSocket.get() );
+                    
+                    // Set up timeout exactly like startNetplay() does
+                    stopTimer.reset ( new Timer ( this ) );
+                    stopTimer->start ( DEFAULT_PENDING_TIMEOUT );
+                    
+                    // Update UI exactly like startNetplay() does
+                    if ( options[Options::Tunnel] ) {
+                        ui.display ( format ( "Trying %s (UDP tunnel)", address ) );
+                    } else {
+                        ui.display ( format ( "Trying %s", address ) );
+                    }
+                    
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char msg[256];
+                        sprintf(msg, "```MAINAPP: F1 manual connection initiated - ctrlSocket=%08x", (unsigned int)ctrlSocket.get());
+                        sendto(udpSock, msg, strlen(msg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                    }
+                }
                 return;
 
             case MsgType::ChangeConfig:
