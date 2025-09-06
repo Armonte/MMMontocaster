@@ -154,6 +154,7 @@ struct MainApp
     bool isWaitingForUser = false;
 
     bool userConfirmed = false;
+    bool isF1Connection = false;  // Track if this is an F1 connection to bypass UI prompts
 
     SocketPtr uiSendSocket, uiRecvSocket;
 
@@ -749,6 +750,50 @@ struct MainApp
         uiCondVar.signal();
     }
 
+    bool autoConfirmF1Connection(const InitialConfig& initialConfig, const PingStats& pingStats)
+    {
+        // UDP debug for F1 auto-confirmation
+        static SOCKET udpSock = INVALID_SOCKET;
+        if (udpSock == INVALID_SOCKET) {
+            udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+        }
+        if (udpSock != INVALID_SOCKET) {
+            struct sockaddr_in debugAddr;
+            debugAddr.sin_family = AF_INET;
+            debugAddr.sin_port = htons(17474);
+            debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+            
+            char debugMsg[256];
+            sprintf(debugMsg, "```F1_AUTO: Auto-confirming connection with defaults");
+            sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+            
+            // Calculate delay based on ping (same logic as MainUi::connected)
+            const int delay = computeDelay(pingStats.latency.getMean());
+            const int worst = computeDelay(pingStats.latency.getWorst());
+            const int variance = computeDelay(pingStats.latency.getVariance());
+            
+            // Create NetplayConfig with reasonable defaults (same as MainUi::connected does)
+            netplayConfig.delay = worst + 1;  // Same calculation as MainUi::connected
+            netplayConfig.rollback = 3;  // Common default value  
+            netplayConfig.rollbackDelay = netplayConfig.delay;  // Same delay for rollback
+            netplayConfig.winCount = 2;  // Default win count
+            netplayConfig.hostPlayer = 1 + (rand() % 2);  // Random player assignment
+            
+            // IMPORTANT: Force Versus mode for F1 connections (not Training)
+            netplayConfig.mode.value = ClientMode::Client;  // We're the client
+            netplayConfig.mode.flags = 0;  // No Training flag = Versus mode
+            
+            netplayConfig.setNames(initialConfig.localName, initialConfig.remoteName);
+            
+            char debugMsg2[512];
+            sprintf(debugMsg2, "```F1_AUTO: Set delay=%d, rollback=%d, hostPlayer=%d", 
+                   netplayConfig.delay, netplayConfig.rollback, netplayConfig.hostPlayer);
+            sendto(udpSock, debugMsg2, strlen(debugMsg2), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+        }
+        
+        return true;  // Always confirm for F1 connections
+    }
+
     void waitForUserConfirmation()
     {
         // This runs a different thread waiting for user confirmation
@@ -767,7 +812,13 @@ struct MainApp
         {
             case ClientMode::Host:
             case ClientMode::Client:
-                userConfirmed = ui.connected ( initialConfig, pingStats );
+                if (isF1Connection) {
+                    // F1 connection: Auto-accept with reasonable defaults
+                    userConfirmed = autoConfirmF1Connection(initialConfig, pingStats);
+                } else {
+                    // Normal connection: Show UI prompts
+                    userConfirmed = ui.connected ( initialConfig, pingStats );
+                }
                 break;
 
             case ClientMode::SpectateNetplay:
@@ -1419,6 +1470,9 @@ struct MainApp
                     pinger.pingInterval = PING_INTERVAL;
                     pinger.numPings = NUM_PINGS;
                     
+                    // Mark this as F1 connection to bypass UI prompts later
+                    isF1Connection = true;
+                    
                     // Manual TCP connection (startNetplay() expects to control MBAA.exe launch)
                     if (udpSock != INVALID_SOCKET) {
                         struct sockaddr_in debugAddr;
@@ -1517,9 +1571,44 @@ struct MainApp
                 hasFramestep = false;
             }
 
-            // Open the game and wait for callback to ipcConnected
-            procMan.openGame ( ui.getConfig().getInteger ( "highCpuPriority" ),
-                               ( clientMode.isTraining() || clientMode.isReplay() ) && hasFramestep );
+            // F1 connection fix: Don't launch new MBAA.exe if already running
+            if ( isF1Connection )
+            {
+                // UDP debug for F1 connection
+                static SOCKET udpSock = INVALID_SOCKET;
+                if (udpSock == INVALID_SOCKET) {
+                    udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                }
+                if (udpSock != INVALID_SOCKET) {
+                    struct sockaddr_in debugAddr;
+                    debugAddr.sin_family = AF_INET;
+                    debugAddr.sin_port = htons(17474);
+                    debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                    
+                    char debugMsg[256];
+                    sprintf(debugMsg, "```F1_START: Skipping openGame() - MBAA.exe already running");
+                    sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                }
+                
+                // For F1 connections, MBAA.exe is already running, so skip openGame
+                // The DLL is already injected and will get the netplay config via IPC
+                LOG("F1 connection: Skipping openGame() - using existing MBAA.exe");
+                
+                // Send config to already-running DLL (same as ipcConnected does)
+                procMan.ipcSend ( options );
+                procMan.ipcSend ( ControllerManager::get().getMappings() );
+                
+                netplayConfig.invalidate();
+                procMan.ipcSend ( netplayConfig );
+                
+                ui.display ( format ( "Started %s mode", getGameModeString() ) );
+            }
+            else
+            {
+                // Normal connection: Open the game and wait for callback to ipcConnected  
+                procMan.openGame ( ui.getConfig().getInteger ( "highCpuPriority" ),
+                                   ( clientMode.isTraining() || clientMode.isReplay() ) && hasFramestep );
+            }
         }
         else
         {
@@ -1727,7 +1816,7 @@ private:
         uiSendSocket.reset();
         uiRecvSocket.reset();
 
-        isBroadcastPortReady = isFinalConfigReady = isWaitingForUser = userConfirmed = false;
+        isBroadcastPortReady = isFinalConfigReady = isWaitingForUser = userConfirmed = isF1Connection = false;
     }
 };
 
