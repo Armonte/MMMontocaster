@@ -1808,12 +1808,76 @@ struct DllMain
 
     void ipcRead ( const MsgPtr& msg ) override
     {
-        if ( ! msg.get() )
+        if ( ! msg.get() ) {
+            // Direct UDP debug (bypasses disabled logging in release)
+            {
+                SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                if (udpSock != INVALID_SOCKET) {
+                    struct sockaddr_in debugAddr;
+                    debugAddr.sin_family = AF_INET;
+                    debugAddr.sin_port = htons(17474);
+                    debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                    
+                    char debugMsg[256];
+                    sprintf(debugMsg, "```F1_IPC_RECV: Received null message");
+                    sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                    closesocket(udpSock);
+                }
+            }
             return;
+        }
+
+        // Direct UDP debug (bypasses disabled logging in release)
+        {
+            SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+            if (udpSock != INVALID_SOCKET) {
+                struct sockaddr_in debugAddr;
+                debugAddr.sin_family = AF_INET;
+                debugAddr.sin_port = htons(17474);
+                debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                
+                char debugMsg[256];
+                sprintf(debugMsg, "```F1_IPC_RECV: Received message type %d", (int)msg->getMsgType());
+                sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                closesocket(udpSock);
+            }
+        }
+
+        // F1 DEBUG: Log all message types that reach the handler  
+        if (msg->getMsgType() == MsgType::ClientMode) {
+            SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+            if (udpSock != INVALID_SOCKET) {
+                struct sockaddr_in debugAddr;
+                debugAddr.sin_family = AF_INET;
+                debugAddr.sin_port = htons(17474);
+                debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                
+                char debugMsg[256];
+                sprintf(debugMsg, "```F1_IPC_HANDLER: ClientMode message reached handler - about to process");
+                sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                closesocket(udpSock);
+            }
+        }
 
         switch ( msg->getMsgType() )
         {
             case MsgType::OptionsMessage:
+                // Direct UDP debug
+                {
+                    SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[256];
+                        sprintf(debugMsg, "```F1_IPC_RECV: Processing OptionsMessage");
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                        closesocket(udpSock);
+                    }
+                }
+                
                 options = msg->getAs<OptionsMessage>();
 
                 if ( options[Options::AppDir] )
@@ -1946,15 +2010,56 @@ struct DllMain
                 break;
 
             case MsgType::ControllerMappings:
+                // Direct UDP debug
+                {
+                    SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[256];
+                        sprintf(debugMsg, "```F1_IPC_RECV: Processing ControllerMappings");
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                        closesocket(udpSock);
+                    }
+                }
+                
                 KeyboardState::clear();
                 initControllers ( msg->getAs<ControllerMappings>() );
                 break;
 
             case MsgType::ClientMode:
-                if ( clientMode != ClientMode::Unknown )
+            {
+                // F1 FIX: Allow updating from Offline to netplay modes for F1 connections
+                // Normal startup: Unknown -> Host/Client (allowed)  
+                // F1 connection: Offline -> Host/Client (now allowed)
+                ClientMode newMode = msg->getAs<ClientMode>();
+                
+                // Direct UDP debug (bypasses disabled logging in release)
+                {
+                    SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[256];
+                        sprintf(debugMsg, "```F1_MODE_UPDATE: ClientMode %d->%d, isNetplay %d->%d", 
+                               (int)clientMode.value, (int)newMode.value,
+                               clientMode.isNetplay(), newMode.isNetplay());
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                        closesocket(udpSock);
+                    }
+                }
+                
+                // Only skip if it's the same mode (avoid redundant processing)
+                if ( clientMode.value == newMode.value && clientMode.flags == newMode.flags )
                     break;
 
-                clientMode = msg->getAs<ClientMode>();
+                clientMode = newMode;
                 clientMode.flags |= ClientMode::GameStarted;
 
                 for ( const AsmHacks::Asm& hack : AsmHacks::addExtraDraws )
@@ -1977,6 +2082,7 @@ struct DllMain
 
                 LOG ( "%s: flags={ %s }", clientMode, clientMode.flagString() );
                 break;
+            }
 
             case MsgType::IpAddrPort:
                 if ( ! address.empty() )
@@ -2055,6 +2161,58 @@ struct DllMain
 
                 if ( netMan.config.delay == 0xFF )
                     THROW_EXCEPTION ( "delay=%u", ERROR_INVALID_HOST_CONFIG, netMan.config.delay );
+                
+                // F1 SYNC FIX: Force both clients to intro state for proper netplay synchronization
+                // This runs when DLL receives NetplayConfig from MainApp via IPC
+                // Direct UDP debug (bypasses disabled logging in release)
+                {
+                    SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[256];
+                        sprintf(debugMsg, "```F1_DEBUG: NetplayConfig received - globalMode=%d (isNetplay=%d), configMode=%d", 
+                               (int)clientMode.value, clientMode.isNetplay(), (int)netMan.config.mode.value);
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                        closesocket(udpSock);
+                    }
+                }
+                
+                if ( clientMode.isNetplay() ) {  // Trigger for both Host and Client
+                    // Use same addresses as disconnect recovery code (DllNetplayManager.cpp:1398-1399)
+                    uint32_t* goalGameModeAddr = (uint32_t*) 0x0055d1d0;        // goal game mode
+                    uint8_t* newSceneFlagAddr = (uint8_t*) 0x0055dec3;          // g_NewSceneFlag
+                    uint32_t* currentGameModeAddr = (uint32_t*) 0x0054eee8;     // current game mode (for logging)
+                    
+                    // Read current state for debugging
+                    uint32_t currentBefore = *currentGameModeAddr;
+                    uint32_t goalBefore = *goalGameModeAddr;
+                    uint8_t flagBefore = *newSceneFlagAddr;
+                    
+                    // Force transition to intro/opening for sync with host
+                    *goalGameModeAddr = CC_GAME_MODE_OPENING;  // 3 = intro/opening sequence
+                    *newSceneFlagAddr = 1;                     // trigger scene transition
+                    
+                    // Direct UDP debug logging (bypasses disabled logging in release)
+                    {
+                        SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                        if (udpSock != INVALID_SOCKET) {
+                            struct sockaddr_in debugAddr;
+                            debugAddr.sin_family = AF_INET;
+                            debugAddr.sin_port = htons(17474);
+                            debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                            
+                            char syncMsg[512];
+                            sprintf(syncMsg, "```F1_SYNC: DLL forcing intro sync - current:%d->%d, goal:%d->3, flag:%d->1", 
+                                   currentBefore, *currentGameModeAddr, goalBefore, flagBefore);
+                            sendto(udpSock, syncMsg, strlen(syncMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                            closesocket(udpSock);
+                        }
+                    }
+                }
 
                 if ( clientMode.isNetplay() )
                 {

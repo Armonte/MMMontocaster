@@ -1594,12 +1594,111 @@ struct MainApp
                 // The DLL is already injected and will get the netplay config via IPC
                 LOG("F1 connection: Skipping openGame() - using existing MBAA.exe");
                 
-                // Send config to already-running DLL (same as ipcConnected does)
-                procMan.ipcSend ( options );
-                procMan.ipcSend ( ControllerManager::get().getMappings() );
+                // F1 FIX: Set global clientMode to Client mode for F1 connections
+                // Don't copy from netplayConfig.mode because invalidate() will reset it
+                clientMode.value = ClientMode::Client;
+                clientMode.flags = 0;  // Versus mode (no Training flag)
                 
+                // Send config to already-running DLL (same as ipcConnected does)
+                // F1 IPC DEBUG: Add comprehensive logging to trace message flow
+                {
+                    static SOCKET udpSock = INVALID_SOCKET;
+                    if (udpSock == INVALID_SOCKET) {
+                        udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    }
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[512];
+                        sprintf(debugMsg, "```F1_IPC_STATUS: IPC connected=%d, starting message sequence", procMan.isConnected());
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                    }
+                }
+                
+                // F1 IPC FIX: Force reconnection to trigger DLL initialization sequence
+                // The core issue: DLL is in steady-state, not initialization state
+                // Normal flow: openGame() → connectPipe() → ipcConnected() → send ClientMode
+                // F1 flow: DLL already running → try to send ClientMode → DROPPED!
+                // Solution: Reset IPC to make DLL enter initialization state again
+                
+                if (procMan.isConnected()) {
+                    // Debug: Log the IPC reset strategy
+                    static SOCKET udpSock = INVALID_SOCKET;
+                    if (udpSock == INVALID_SOCKET) {
+                        udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    }
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[256];
+                        sprintf(debugMsg, "```F1_IPC_RESET: Forcing IPC disconnect to reset DLL to initialization state");
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                    }
+                    
+                    // Force disconnect current IPC connection
+                    procMan.closeGame();  // This calls disconnectPipe()
+                    
+                    // Brief delay to ensure cleanup
+                    Sleep(100);
+                } else {
+                    // Not connected - this shouldn't happen in F1 but handle it
+                    LOG("F1_IPC_ERROR: ProcessManager not connected - cannot reset IPC");
+                    ui.display ( format ( "F1 connection failed - no existing IPC connection" ) );
+                    return;
+                }
+                
+                // F1 IPC RECONNECTION FIX: Reconnect to trigger DLL initialization sequence
+                // Instead of manually sending IPC messages that get dropped, we reconnect IPC
+                // to trigger the normal ipcConnected() callback which sends messages properly.
+                
+                // Set up config for the reconnection callback
                 netplayConfig.invalidate();
-                procMan.ipcSend ( netplayConfig );
+                netplayConfig.mode.value = ClientMode::Client;
+                netplayConfig.mode.flags = 0;  // Versus mode (no Training flag)
+                
+                // F1 IPC FIX: Use IpcConnected message to reset DLL to initialization state
+                {
+                    // Debug: Log the reconnection strategy
+                    static SOCKET udpSock2 = INVALID_SOCKET;
+                    if (udpSock2 == INVALID_SOCKET) {
+                        udpSock2 = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    }
+                    if (udpSock2 != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr2;
+                        debugAddr2.sin_family = AF_INET;
+                        debugAddr2.sin_port = htons(17474);
+                        debugAddr2.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg2[256];
+                        sprintf(debugMsg2, "```F1_IPC_FIX: Sending IpcConnected to reset DLL to initialization state");
+                        sendto(udpSock2, debugMsg2, strlen(debugMsg2), 0, (struct sockaddr*)&debugAddr2, sizeof(debugAddr2));
+                        
+                        // Send IpcConnected to trigger initialization state in DLL
+                        procMan.ipcSend ( new IpcConnected() );
+                        
+                        // Brief delay to let DLL process the state change
+                        Sleep(50);
+                        
+                        sprintf(debugMsg2, "```F1_IPC_FIX: IpcConnected sent, now sending initialization messages");
+                        sendto(udpSock2, debugMsg2, strlen(debugMsg2), 0, (struct sockaddr*)&debugAddr2, sizeof(debugAddr2));
+                        
+                        // Send all initialization messages in the correct order (same as ipcConnected() callback)
+                        procMan.ipcSend ( options );
+                        procMan.ipcSend ( ControllerManager::get().getMappings() );
+                        procMan.ipcSend ( clientMode );  // This should now be accepted!
+                        procMan.ipcSend ( new IpAddrPort ( address.getAddrInfo()->ai_addr ) );
+                        procMan.ipcSend ( netplayConfig );
+                        
+                        sprintf(debugMsg2, "```F1_IPC_FIX: All initialization messages sent after IpcConnected reset");
+                        sendto(udpSock2, debugMsg2, strlen(debugMsg2), 0, (struct sockaddr*)&debugAddr2, sizeof(debugAddr2));
+                    }
+                }
                 
                 ui.display ( format ( "Started %s mode", getGameModeString() ) );
             }
