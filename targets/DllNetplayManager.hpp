@@ -150,6 +150,7 @@ public:
     
     // Set disconnected flag to unfreeze game (Phase 1 fix)
     void setDisconnected() { _disconnected = true; }
+    void clearDisconnected() { _disconnected = false; }
 
     friend class DllRollbackManager;
 

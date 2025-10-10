@@ -1022,7 +1022,17 @@ struct MainApp
         if ( clientMode.isNetplay() )
         {
             netplayConfig.mode.value = clientMode.value;
-            netplayConfig.mode.flags = clientMode.flags = initialConfig.mode.flags;
+            
+            // F1 FIX: Don't overwrite clientMode.flags for F1 connections 
+            // initialConfig.mode.flags comes from HOST and will corrupt our CLIENT mode
+            if (!isF1Connection) {
+                netplayConfig.mode.flags = clientMode.flags = initialConfig.mode.flags;
+            } else {
+                // F1 connection: keep our client flags, just copy to netplayConfig
+                netplayConfig.mode.flags = clientMode.flags;
+                LOG("F1: Preserving clientMode flags=%d, not using host flags", (int)clientMode.flags);
+            }
+            
             netplayConfig.winCount = initialConfig.winCount;
             netplayConfig.setNames ( initialConfig.localName, initialConfig.remoteName );
 
@@ -1377,6 +1387,47 @@ struct MainApp
     {
         ASSERT ( clientMode != ClientMode::Unknown );
 
+        // F1 FIX: Skip normal IPC initialization for F1 connections
+        // F1 connections handle IPC messages manually after setting up clientMode correctly
+        if (isF1Connection) {
+            // UDP debug logging for F1 callback skip
+            static SOCKET udpSock = INVALID_SOCKET;
+            if (udpSock == INVALID_SOCKET) {
+                udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+            }
+            if (udpSock != INVALID_SOCKET) {
+                struct sockaddr_in debugAddr;
+                debugAddr.sin_family = AF_INET;
+                debugAddr.sin_port = htons(17474);
+                debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                
+                char debugMsg[256];
+                sprintf(debugMsg, "```F1_IPC_CALLBACK: ipcConnected() SKIPPED for F1 - clientMode=%d", (int)clientMode.value);
+                sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+            }
+            
+            LOG("F1: ipcConnected() called but skipping - F1 will handle IPC messages manually");
+            return;
+        }
+        
+        // UDP debug logging for normal callback
+        {
+            static SOCKET udpSock = INVALID_SOCKET;
+            if (udpSock == INVALID_SOCKET) {
+                udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+            }
+            if (udpSock != INVALID_SOCKET) {
+                struct sockaddr_in debugAddr;
+                debugAddr.sin_family = AF_INET;
+                debugAddr.sin_port = htons(17474);
+                debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                
+                char debugMsg[256];
+                sprintf(debugMsg, "```NORMAL_IPC_CALLBACK: ipcConnected() sending clientMode=%d", (int)clientMode.value);
+                sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+            }
+        }
+
         procMan.ipcSend ( options );
         procMan.ipcSend ( ControllerManager::get().getMappings() );
         procMan.ipcSend ( clientMode );
@@ -1443,9 +1494,13 @@ struct MainApp
                 }
                 else
                 {
+                    // F1 connection request - IMMEDIATELY mark as F1 to prevent race condition
+                    isF1Connection = true;
+                    
                     // F1 connection request - ACTUALLY connect now
                     IpAddrPort targetHost = msg->getAs<IpAddrPort>();
                     LOG ( "F1: Received connection request to %s:%d", targetHost.addr.c_str(), targetHost.port );
+                    LOG ( "F1: Current clientMode.value=%d before setting to Client", (int)clientMode.value );
                     
                     // UDP logging for debugging (visible in release builds)
                     static SOCKET udpSock = INVALID_SOCKET;
@@ -1457,21 +1512,23 @@ struct MainApp
                         addr.sin_family = AF_INET;
                         addr.sin_port = htons(17474);
                         addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-                        std::string msg = "```MAINAPP: F1 connection request received for " + targetHost.addr + ":" + std::to_string(targetHost.port);
+                        std::string msg = "```MAINAPP: F1 connection - isF1Connection set to TRUE before TCP connection";
                         sendto(udpSock, msg.c_str(), msg.length(), 0, (struct sockaddr*)&addr, sizeof(addr));
+                        
+                        std::string msg2 = "```MAINAPP: F1 connection request received for " + targetHost.addr + ":" + std::to_string(targetHost.port);
+                        sendto(udpSock, msg2.c_str(), msg2.length(), 0, (struct sockaddr*)&addr, sizeof(addr));
                     }
                     
                     // Set client mode and target address (like normal UI does)
                     clientMode.value = ClientMode::Client;
+                    clientMode.flags = 0;  // Clear any existing flags
                     address = targetHost;
+                    LOG ( "F1: Set clientMode.value=%d (Client), flags=%d", (int)clientMode.value, (int)clientMode.flags );
                     
                     // CRITICAL FIX: Initialize pinger for F1 connections (normally done in constructor)
                     pinger.owner = this;
                     pinger.pingInterval = PING_INTERVAL;
                     pinger.numPings = NUM_PINGS;
-                    
-                    // Mark this as F1 connection to bypass UI prompts later
-                    isF1Connection = true;
                     
                     // Manual TCP connection (startNetplay() expects to control MBAA.exe launch)
                     if (udpSock != INVALID_SOCKET) {
@@ -1596,8 +1653,50 @@ struct MainApp
                 
                 // F1 FIX: Set global clientMode to Client mode for F1 connections
                 // Don't copy from netplayConfig.mode because invalidate() will reset it
-                clientMode.value = ClientMode::Client;
+                {
+                    static SOCKET udpSock = INVALID_SOCKET;
+                    if (udpSock == INVALID_SOCKET) {
+                        udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    }
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[256];
+                        sprintf(debugMsg, "```F1_DEBUG: Before setting clientMode - current value=%d", (int)clientMode.value);
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                    }
+                }
+                
+                clientMode = ClientMode ( ClientMode::Client );  // Properly construct ClientMode with value 2
                 clientMode.flags = 0;  // Versus mode (no Training flag)
+                
+                {
+                    static SOCKET udpSock = INVALID_SOCKET;
+                    if (udpSock == INVALID_SOCKET) {
+                        udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    }
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[256];
+                        sprintf(debugMsg, "```F1_DEBUG: After setting clientMode - new value=%d", (int)clientMode.value);
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                    }
+                }
+                
+                // F1 DEBUG: Add hex dump of ClientMode before sending
+                LOG("F1: ClientMode before send: value=%d, flags=%d", (int)clientMode.value, (int)clientMode.flags);
+                LOG("F1: ClientMode hex dump: %02x %02x %02x %02x %02x %02x %02x %02x",
+                    ((uint8_t*)&clientMode)[0], ((uint8_t*)&clientMode)[1],
+                    ((uint8_t*)&clientMode)[2], ((uint8_t*)&clientMode)[3],
+                    ((uint8_t*)&clientMode)[4], ((uint8_t*)&clientMode)[5],
+                    ((uint8_t*)&clientMode)[6], ((uint8_t*)&clientMode)[7]);
                 
                 // Send config to already-running DLL (same as ipcConnected does)
                 // F1 IPC DEBUG: Add comprehensive logging to trace message flow
@@ -1618,53 +1717,27 @@ struct MainApp
                     }
                 }
                 
-                // F1 IPC FIX: Force reconnection to trigger DLL initialization sequence
-                // The core issue: DLL is in steady-state, not initialization state
-                // Normal flow: openGame() → connectPipe() → ipcConnected() → send ClientMode
-                // F1 flow: DLL already running → try to send ClientMode → DROPPED!
-                // Solution: Reset IPC to make DLL enter initialization state again
+                // F1 IPC FIX: Send initialization messages directly (they're now working!)
+                // Based on debug output, ClientMode messages are reaching the DLL successfully
+                // The IPC reset approach was working, just need to avoid killing MBAA.exe
                 
-                if (procMan.isConnected()) {
-                    // Debug: Log the IPC reset strategy
-                    static SOCKET udpSock = INVALID_SOCKET;
-                    if (udpSock == INVALID_SOCKET) {
-                        udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
-                    }
-                    if (udpSock != INVALID_SOCKET) {
-                        struct sockaddr_in debugAddr;
-                        debugAddr.sin_family = AF_INET;
-                        debugAddr.sin_port = htons(17474);
-                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-                        
-                        char debugMsg[256];
-                        sprintf(debugMsg, "```F1_IPC_RESET: Forcing IPC disconnect to reset DLL to initialization state");
-                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
-                    }
-                    
-                    // Force disconnect current IPC connection
-                    procMan.closeGame();  // This calls disconnectPipe()
-                    
-                    // Brief delay to ensure cleanup
-                    Sleep(100);
-                } else {
-                    // Not connected - this shouldn't happen in F1 but handle it
-                    LOG("F1_IPC_ERROR: ProcessManager not connected - cannot reset IPC");
-                    ui.display ( format ( "F1 connection failed - no existing IPC connection" ) );
+                if (!procMan.isConnected()) {
+                    LOG("F1_IPC_ERROR: ProcessManager not connected - cannot send IPC messages");
+                    ui.display ( format ( "F1 connection failed - no IPC connection" ) );
                     return;
                 }
                 
-                // F1 IPC RECONNECTION FIX: Reconnect to trigger DLL initialization sequence
-                // Instead of manually sending IPC messages that get dropped, we reconnect IPC
-                // to trigger the normal ipcConnected() callback which sends messages properly.
+                // F1 IPC SIMPLIFIED: Send messages directly (they're working now!)
+                // Based on debug output: ClientMode messages reach DLL and get processed
+                // Problem was the IPC reset was killing MBAA.exe - now just send messages directly
                 
-                // Set up config for the reconnection callback
+                // Set up config for F1 connection
                 netplayConfig.invalidate();
-                netplayConfig.mode.value = ClientMode::Client;
+                netplayConfig.mode = ClientMode ( ClientMode::Client );  // Properly construct ClientMode with value 2
                 netplayConfig.mode.flags = 0;  // Versus mode (no Training flag)
                 
-                // F1 IPC FIX: Use IpcConnected message to reset DLL to initialization state
+                // Send all initialization messages (same as ipcConnected() callback)
                 {
-                    // Debug: Log the reconnection strategy
                     static SOCKET udpSock2 = INVALID_SOCKET;
                     if (udpSock2 == INVALID_SOCKET) {
                         udpSock2 = ::socket(AF_INET, SOCK_DGRAM, 0);
@@ -1676,26 +1749,76 @@ struct MainApp
                         debugAddr2.sin_addr.s_addr = inet_addr("127.0.0.1");
                         
                         char debugMsg2[256];
-                        sprintf(debugMsg2, "```F1_IPC_FIX: Sending IpcConnected to reset DLL to initialization state");
+                        
+                        // F1 CRITICAL: Add small delay to ensure DLL is ready
+                        Sleep(100);  // 100ms delay for DLL to process
+                        sprintf(debugMsg2, "```F1_IPC_WAIT: Waited 100ms, now sending F1-specific messages only");
                         sendto(udpSock2, debugMsg2, strlen(debugMsg2), 0, (struct sockaddr*)&debugAddr2, sizeof(debugAddr2));
                         
-                        // Send IpcConnected to trigger initialization state in DLL
-                        procMan.ipcSend ( new IpcConnected() );
+                        // F1 FIX: Don't resend Options and ControllerMappings - they were already sent at startup!
+                        // Only send what actually changes for F1 connection:
+                        // - ClientMode (changes from 6->2)
+                        // - IpAddrPort (new connection address)
+                        // - NetplayConfig (new network configuration)
+                        // procMan.ipcSend ( options );  // SKIP - unchanged from startup
+                        // procMan.ipcSend ( ControllerManager::get().getMappings() );  // SKIP - unchanged from startup
                         
-                        // Brief delay to let DLL process the state change
-                        Sleep(50);
+                        // Create explicit ClientMode object with correct value FIRST
+                        ClientMode f1ClientMode(ClientMode::Client);
+                        f1ClientMode.flags = 0;  // Ensure flags are clear
                         
-                        sprintf(debugMsg2, "```F1_IPC_FIX: IpcConnected sent, now sending initialization messages");
+                        // F1 DEBUG: Double-check the ACTUAL object we're sending
+                        sprintf(debugMsg2, "```F1_SEND_DEBUG: About to send f1ClientMode=%d, flags=%d, hex=%02x %02x %02x %02x", 
+                                (int)f1ClientMode.value, (int)f1ClientMode.flags,
+                                ((uint8_t*)&f1ClientMode)[0], ((uint8_t*)&f1ClientMode)[1],
+                                ((uint8_t*)&f1ClientMode)[2], ((uint8_t*)&f1ClientMode)[3]);
                         sendto(udpSock2, debugMsg2, strlen(debugMsg2), 0, (struct sockaddr*)&debugAddr2, sizeof(debugAddr2));
                         
-                        // Send all initialization messages in the correct order (same as ipcConnected() callback)
-                        procMan.ipcSend ( options );
-                        procMan.ipcSend ( ControllerManager::get().getMappings() );
-                        procMan.ipcSend ( clientMode );  // This should now be accepted!
+                        LOG ( "F1: Sending ClientMode with value=%d, flags=%d", (int)f1ClientMode.value, (int)f1ClientMode.flags );
+                        procMan.ipcSend ( f1ClientMode );  // Send explicit Client mode
                         procMan.ipcSend ( new IpAddrPort ( address.getAddrInfo()->ai_addr ) );
+                        
+                        // F1: Ensure NetplayConfig has correct mode BEFORE sending
+                        netplayConfig.mode = f1ClientMode;  // Ensure NetplayConfig has correct mode
+                        LOG ( "F1: Sending NetplayConfig with mode.value=%d, delay=%d, rollback=%d",
+                              (int)netplayConfig.mode.value, netplayConfig.delay, netplayConfig.rollback );
                         procMan.ipcSend ( netplayConfig );
                         
-                        sprintf(debugMsg2, "```F1_IPC_FIX: All initialization messages sent after IpcConnected reset");
+                        // F1 CRITICAL: Create data socket NOW for F1 client
+                        if (clientMode.isClient() && !dataSocket) {
+                            sprintf(debugMsg2, "```F1_DATA_SOCKET: Creating UDP data socket for F1 client");
+                            sendto(udpSock2, debugMsg2, strlen(debugMsg2), 0, (struct sockaddr*)&debugAddr2, sizeof(debugAddr2));
+                            
+                            dataSocket = SmartSocket::connectUDP(this, address);
+                            LOG("F1: dataSocket=%08x", dataSocket.get());
+                            
+                            sprintf(debugMsg2, "```F1_DATA_SOCKET: Created dataSocket=%08x", (unsigned int)dataSocket.get());
+                            sendto(udpSock2, debugMsg2, strlen(debugMsg2), 0, (struct sockaddr*)&debugAddr2, sizeof(debugAddr2));
+                        }
+                        
+                        // F1 CRITICAL: Send InitialGameState for F1 connections
+                        // For F1 connections from training mode, we need to send a default InitialGameState
+                        // This tells the DLL what state we're starting from
+                        if (clientMode.isClient()) {
+                            InitialGameState initialState({ 0, 0 }); // Frame 0, index 0
+                            initialState.netplayState = NetplayState::PreInitial; // Start at PreInitial for F1
+                            initialState.stage = 0; // Will be selected at CSS
+                            initialState.isTraining = 0; // Not training mode
+                            
+                            // Leave characters unknown - will be selected at CSS
+                            initialState.chara[0] = UNKNOWN_POSITION;
+                            initialState.chara[1] = UNKNOWN_POSITION;
+                            initialState.moon[0] = UNKNOWN_POSITION;
+                            initialState.moon[1] = UNKNOWN_POSITION;
+                            
+                            sprintf(debugMsg2, "```F1_INITIAL_STATE: Sending InitialGameState for F1 client");
+                            sendto(udpSock2, debugMsg2, strlen(debugMsg2), 0, (struct sockaddr*)&debugAddr2, sizeof(debugAddr2));
+                            
+                            LOG("F1: Sending InitialGameState with netplayState=%d", (int)initialState.netplayState);
+                            procMan.ipcSend(new InitialGameState(initialState));
+                        }
+                        
+                        sprintf(debugMsg2, "```F1_IPC_SIMPLIFIED: All messages sent - keeping MBAA.exe alive");
                         sendto(udpSock2, debugMsg2, strlen(debugMsg2), 0, (struct sockaddr*)&debugAddr2, sizeof(debugAddr2));
                     }
                 }
@@ -1704,7 +1827,7 @@ struct MainApp
             }
             else
             {
-                // Normal connection: Open the game and wait for callback to ipcConnected  
+                // Normal connection: Open the game and wait for callback to ipcConnected
                 procMan.openGame ( ui.getConfig().getInteger ( "highCpuPriority" ),
                                    ( clientMode.isTraining() || clientMode.isReplay() ) && hasFramestep );
             }

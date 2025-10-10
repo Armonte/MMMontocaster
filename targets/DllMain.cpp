@@ -126,11 +126,18 @@ static IpAddrPort pendingConnection;
 static bool shouldInitiateConnection = false;
 
 // Global function for initiating online connection from ImGui
+// Global flag to prevent normal IPC callbacks during F1 connections
+bool globalF1ConnectionActive = false;
+
 void initiateOnlineConnection(const std::string& hostIp, uint16_t port)
 {
     char debugMsg[256];
     sprintf(debugMsg, "```INIT_CONNECTION: Function called for %s:%d", hostIp.c_str(), port);
     udpLogMain(debugMsg);
+    
+    // CRITICAL: Set global F1 flag IMMEDIATELY to prevent wrong ClientMode messages
+    globalF1ConnectionActive = true;
+    udpLogMain("```F1_GLOBAL_FLAG: Set globalF1ConnectionActive=true to prevent wrong IPC messages");
     
     if (netManPtr && mainApp) {
         LOG("Initiating connection to %s:%d", hostIp.c_str(), port);
@@ -203,6 +210,9 @@ struct DllMain
     int framesWithoutData = 0;
     static constexpr int DISCONNECT_TIMEOUT_FRAMES = 600;  // 10 seconds at 60fps (more conservative)
     bool isDisconnecting = false;
+    
+    // F1 connection tracking - prevents disconnect recovery from interfering
+    bool isF1Active = false;
 
     // If the delay and/or rollback should be changed
     bool shouldChangeDelayRollback = false;
@@ -681,8 +691,13 @@ struct DllMain
                     udpLogMain("``TIMEOUT PATH - Set disconnected flag, game should unfreeze");
                     
                     // PHASE 1 ENHANCEMENT: Transition to training mode CSS
-                    netMan.restoreOfflineGameMode();
-                    LOG ( "Called restoreOfflineGameMode due to timeout - should transition to training CSS" );
+                    // F1 FIX: Skip disconnect recovery if F1 connection is active
+                    if (!isF1Active) {
+                        netMan.restoreOfflineGameMode();
+                        LOG ( "Called restoreOfflineGameMode due to timeout - should transition to training CSS" );
+                    } else {
+                        LOG ( "F1: Skipped restoreOfflineGameMode due to active F1 connection" );
+                    }
                     udpLogMain("``TIMEOUT PATH - Called restoreOfflineGameMode");
                     
                     // DO NOTHING - just mark that we detected the timeout
@@ -1526,6 +1541,16 @@ struct DllMain
             ASSERT ( dataSocket != 0 );
             ASSERT ( dataSocket->isConnected() == true );
 
+            // F1 FIX: Check if this is an F1 connection and force proper initialization
+            if (isF1Active) {
+                LOG("F1: Data socket connected for F1 connection - forcing frame sync initialization");
+                // Clear disconnected flag to enable network functionality
+                netMan.clearDisconnected();
+                
+                // Start sending input frames immediately
+                initialTimer.reset();
+            }
+
             netplayStateChanged ( NetplayState::Initial );
 
             initialTimer.reset();
@@ -1546,6 +1571,13 @@ struct DllMain
         ASSERT ( dataSocket->isConnected() == true );
 
         dataSocket->send ( serverCtrlSocket->address );
+
+        // F1 FIX: Check if this is an F1 connection client-side
+        if (isF1Active) {
+            LOG("F1: Client data socket connected for F1 - initializing frame sync");
+            netMan.clearDisconnected();
+            initialTimer.reset();
+        }
 
         netplayStateChanged ( NetplayState::Initial );
 
@@ -1580,8 +1612,13 @@ struct DllMain
                 LOG ( "Set disconnected flag - game should unfreeze" );
                 
                 // PHASE 1 ENHANCEMENT: Transition to training mode CSS
-                netMan.restoreOfflineGameMode();
-                LOG ( "Called restoreOfflineGameMode - should transition to training CSS" );
+                // F1 FIX: Skip disconnect recovery if F1 connection is active
+                if (!isF1Active) {
+                    netMan.restoreOfflineGameMode();
+                    LOG ( "Called restoreOfflineGameMode - should transition to training CSS" );
+                } else {
+                    LOG ( "F1: Skipped restoreOfflineGameMode due to active F1 connection" );
+                }
                 
                 // Don't call any socket cleanup methods - just mark it as gone
                 // The socket destructor will be called eventually, but not in this callback
@@ -1608,11 +1645,16 @@ struct DllMain
                 LOG ( "Emergency: Set disconnected flag - game should unfreeze" );
                 
                 // PHASE 1 ENHANCEMENT: Try to transition to training CSS even in emergency
-                try {
-                    netMan.restoreOfflineGameMode();
-                    LOG ( "Emergency: Called restoreOfflineGameMode - should transition to training CSS" );
-                } catch (...) {
-                    LOG ( "Emergency: restoreOfflineGameMode failed - continuing anyway" );
+                // F1 FIX: Skip disconnect recovery if F1 connection is active
+                if (!isF1Active) {
+                    try {
+                        netMan.restoreOfflineGameMode();
+                        LOG ( "Emergency: Called restoreOfflineGameMode - should transition to training CSS" );
+                    } catch (...) {
+                        LOG ( "Emergency: restoreOfflineGameMode failed - continuing anyway" );
+                    }
+                } else {
+                    LOG ( "F1: Skipped emergency restoreOfflineGameMode due to active F1 connection" );
                 }
                 
                 // Don't even touch the socket pointer - just log and return
@@ -2035,7 +2077,18 @@ struct DllMain
                 // F1 FIX: Allow updating from Offline to netplay modes for F1 connections
                 // Normal startup: Unknown -> Host/Client (allowed)  
                 // F1 connection: Offline -> Host/Client (now allowed)
+                
                 ClientMode newMode = msg->getAs<ClientMode>();
+                
+                // F1 DEBUG: Hex dump the actual value and flags fields
+                LOG("F1: ClientMode value=%d (%02x), flags=%d (%02x) (struct size=%d)",
+                    (int)newMode.value, (int)newMode.value, 
+                    (int)newMode.flags, (int)newMode.flags, sizeof(ClientMode));
+                
+                // F1 DEBUG: Log the parsed ClientMode values
+                LOG("F1: Parsed ClientMode: value=%d, flags=%d", (int)newMode.value, (int)newMode.flags);
+                LOG("F1: Current ClientMode: value=%d, flags=%d", (int)clientMode.value, (int)clientMode.flags);
+                LOG("F1: ClientMode transition: %d->%d", (int)clientMode.value, (int)newMode.value);
                 
                 // Direct UDP debug (bypasses disabled logging in release)
                 {
@@ -2046,10 +2099,11 @@ struct DllMain
                         debugAddr.sin_port = htons(17474);
                         debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
                         
-                        char debugMsg[256];
-                        sprintf(debugMsg, "```F1_MODE_UPDATE: ClientMode %d->%d, isNetplay %d->%d", 
+                        char debugMsg[512];
+                        sprintf(debugMsg, "```F1_MODE_UPDATE: ClientMode %d->%d, isNetplay %d->%d, val_hex=%02x, flags_hex=%02x", 
                                (int)clientMode.value, (int)newMode.value,
-                               clientMode.isNetplay(), newMode.isNetplay());
+                               clientMode.isNetplay(), newMode.isNetplay(),
+                               (int)newMode.value, (int)newMode.flags);
                         sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
                         closesocket(udpSock);
                     }
@@ -2058,6 +2112,16 @@ struct DllMain
                 // Only skip if it's the same mode (avoid redundant processing)
                 if ( clientMode.value == newMode.value && clientMode.flags == newMode.flags )
                     break;
+
+                // F1 CRITICAL FIX: Detect F1 connection and set flag IMMEDIATELY
+                // This must happen BEFORE any disconnect callbacks can interfere
+                bool wasOffline = (clientMode.value == 6);  // Previous mode was offline
+                bool willBeNetplay = newMode.isNetplay();   // New mode is netplay
+                if (wasOffline && willBeNetplay) {
+                    // This is an F1 connection: offline -> netplay transition
+                    isF1Active = true;
+                    udpLogMain("F1_EARLY_DETECT: Set isF1Active=true to prevent disconnect interference");
+                }
 
                 clientMode = newMode;
                 clientMode.flags |= ClientMode::GameStarted;
@@ -2085,11 +2149,22 @@ struct DllMain
             }
 
             case MsgType::IpAddrPort:
-                if ( ! address.empty() )
+                // F1 FIX: Allow address update for F1 connections
+                if ( ! address.empty() && !isF1Active ) {
+                    LOG ( "F1: Skipping IpAddrPort - address already set to '%s'", address );
                     break;
+                }
 
                 address = msg->getAs<IpAddrPort>();
                 LOG ( "address='%s'", address );
+                
+                // F1 FIX: Use safe UDP logging without format() which might not be available
+                {
+                    char addrMsg[256];
+                    sprintf(addrMsg, "F1_ADDR: Updated address to %s:%d", 
+                            address.addr.c_str(), address.port);
+                    udpLogMain(addrMsg);
+                }
                 break;
 
             case MsgType::SpectateConfig:
@@ -2152,11 +2227,76 @@ struct DllMain
                 break;
 
             case MsgType::NetplayConfig:
-                if ( netMan.config.delay != 0xFF )
+            {
+                // F1 FIX: Allow NetplayConfig re-processing for F1 offline->online transitions
+                bool isF1Transition = (netMan.config.delay != 0xFF &&  // Already configured from startup
+                                       netMan.config.mode.value == 6 &&  // Currently offline
+                                       msg->getAs<NetplayConfig>().mode.isNetplay());  // New config is netplay
+                
+                if ( netMan.config.delay != 0xFF && !isF1Transition ) {
+                    char skipMsg[256];
+                    sprintf(skipMsg, "F1_CONFIG_SKIP: NetplayConfig skipped - already configured (delay=%d)",
+                            netMan.config.delay);
+                    udpLogMain(skipMsg);
                     break;
+                }
+                
+                char acceptMsg[256];
+                sprintf(acceptMsg, "F1_CONFIG_ACCEPT: Processing NetplayConfig - mode %d->%d",
+                        (int)netMan.config.mode.value, 
+                        (int)msg->getAs<NetplayConfig>().mode.value);
+                udpLogMain(acceptMsg);
 
                 netMan.config = msg->getAs<NetplayConfig>();
-                netMan.config.mode = clientMode;
+                
+                // F1 DEBUG: Log what mode values we have
+                LOG("F1: NetplayConfig received - msg.mode=%d, clientMode=%d", 
+                    (int)msg->getAs<NetplayConfig>().mode.value, (int)clientMode.value);
+                LOG("F1: NetplayManager state=%d", (int)netMan.getState().value);
+                
+                // F1 FIX: For F1 connections, clientMode might still be Offline when NetplayConfig arrives
+                // Check if the NetplayConfig contains a valid netplay mode and use it
+                ClientMode msgMode = msg->getAs<NetplayConfig>().mode;
+                if (msgMode.isNetplay() && !clientMode.isNetplay()) {
+                    // F1 connection: NetplayConfig has netplay mode but clientMode is still offline
+                    // Update clientMode to match the NetplayConfig mode
+                    LOG("F1: NetplayConfig has netplay mode %d, updating clientMode from %d", 
+                        (int)msgMode.value, (int)clientMode.value);
+                    clientMode = msgMode;
+                    clientMode.flags |= ClientMode::GameStarted;
+                    netMan.config.mode = clientMode;
+                    
+                    // F1 CRITICAL FIX: Reset NetplayManager disconnected state
+                    // After a disconnect, _disconnected=true blocks all network functionality
+                    // We need to reset this for F1 connections to work
+                    LOG("F1: Resetting NetplayManager disconnected state for F1 connection");
+                    netMan.clearDisconnected();  // Clear _disconnected flag
+                    
+                    // F1 CRITICAL FIX: Force NetplayManager state initialization
+                    LOG("F1: Force initializing NetplayManager for F1 connection");
+                    // The setState function will handle the transition properly
+                    netMan.setState(NetplayState::PreInitial);
+                    
+                    // F1 CRITICAL FIX: Set flag to prevent disconnect recovery from interfering
+                    isF1Active = true;  // This will prevent restoreOfflineGameMode() calls
+                } else {
+                    // Normal flow: use clientMode (should already be set by ClientMode message)
+                    netMan.config.mode = clientMode;
+                    
+                    // F1 FIX: Also clear disconnected flag for normal F1 connections
+                    // Check if this might be an F1 connection (clientMode is netplay but we had a disconnect)
+                    if (clientMode.isNetplay()) {
+                        LOG("F1: Clearing disconnected flag for netplay connection");
+                        netMan.clearDisconnected();  // Ensure network functionality is enabled
+                        
+                        // F1: If NetplayManager is not initialized, force initialization
+                        if (netMan.getState() == NetplayState::Unknown || netMan.getState() == NetplayState::PreInitial) {
+                            LOG("F1: NetplayManager in state %d, ensuring PreInitial", (int)netMan.getState().value);
+                            netMan.setState(NetplayState::PreInitial);
+                        }
+                    }
+                }
+                
                 netMan.config.sessionId = Logger::get().sessionId;
 
                 if ( netMan.config.delay == 0xFF )
@@ -2181,7 +2321,22 @@ struct DllMain
                     }
                 }
                 
-                if ( clientMode.isNetplay() ) {  // Trigger for both Host and Client
+                // F1 CRITICAL: For F1 connections, we need to ensure the data socket is ready
+                // In normal flow, dataSocket is created during MainApp's openGame()
+                // For F1, we're already running, so we need to handle it here
+                if (clientMode.isClient() && !dataSocket) {
+                    LOG("F1: Client mode but no dataSocket - F1 connection detected");
+                    // Mark as F1 to trigger special handling
+                    isF1Active = true;
+                    
+                    // We'll wait for the data socket to be created by the normal TCP/UDP flow
+                    // MainApp creates it after InitialConfig exchange
+                }
+                
+                // F1 FIX: Trigger intro for both normal netplay AND F1 connections
+                // clientMode.isNetplay() handles normal connections
+                // netMan.config.mode.isNetplay() handles F1 from offline training
+                if ( clientMode.isNetplay() || netMan.config.mode.isNetplay() ) {
                     // Use same addresses as disconnect recovery code (DllNetplayManager.cpp:1398-1399)
                     uint32_t* goalGameModeAddr = (uint32_t*) 0x0055d1d0;        // goal game mode
                     uint8_t* newSceneFlagAddr = (uint8_t*) 0x0055dec3;          // g_NewSceneFlag
@@ -2192,9 +2347,46 @@ struct DllMain
                     uint32_t goalBefore = *goalGameModeAddr;
                     uint8_t flagBefore = *newSceneFlagAddr;
                     
-                    // Force transition to intro/opening for sync with host
-                    *goalGameModeAddr = CC_GAME_MODE_OPENING;  // 3 = intro/opening sequence
-                    *newSceneFlagAddr = 1;                     // trigger scene transition
+                    // F1 ENHANCED FIX: Check for F1 connection from CharaSelect
+                    // Use isF1Active (global) instead of isF1Transition (local to NetplayConfig case)
+                    bool isF1FromCharaSelect = (isF1Active && currentBefore == CC_GAME_MODE_CHARA_SELECT);
+                    bool isF1Reconnection = (currentBefore == CC_GAME_MODE_OPENING && goalBefore == CC_GAME_MODE_OPENING);
+                    
+                    if (isF1FromCharaSelect) {
+                        // F1 connection from CharaSelect - force transition to intro
+                        LOG("F1: Detected F1 connection from CharaSelect - forcing intro transition");
+                        udpLogMain("```F1_INTRO: Forcing transition from CharaSelect to intro movie");
+                        
+                        // Force immediate transition to intro movie
+                        *goalGameModeAddr = CC_GAME_MODE_OPENING;      // Goal to intro
+                        *newSceneFlagAddr = 1;                         // Trigger transition
+                        
+                        // Clear any training mode flags
+                        uint32_t* p1EnabledAddr = (uint32_t*) 0x0074CBB0;  // P1 input enabled
+                        uint32_t* p2EnabledAddr = (uint32_t*) 0x0074CBB4;  // P2 input enabled
+                        *p1EnabledAddr = 1;  // Enable P1 for network
+                        *p2EnabledAddr = 1;  // Enable P2 for network
+                        
+                    } else if (isF1Reconnection) {
+                        // F1 reconnection after disconnect - need full reset
+                        LOG("F1: Detected F1 reconnection - performing full game state reset");
+                        
+                        // Reset to main menu first, then transition to intro
+                        *currentGameModeAddr = CC_GAME_MODE_MAIN;      // Force current mode to main menu
+                        *goalGameModeAddr = CC_GAME_MODE_OPENING;      // Then goal to intro
+                        *newSceneFlagAddr = 1;                         // Trigger transition
+                        
+                        // Additional resets that might be needed
+                        // Reset any training mode or disconnect recovery flags
+                        uint32_t* p1EnabledAddr = (uint32_t*) 0x0074CBB0;  // P1 input enabled
+                        uint32_t* p2EnabledAddr = (uint32_t*) 0x0074CBB4;  // P2 input enabled
+                        *p1EnabledAddr = 0;  // Disable P1 (will be re-enabled for network)
+                        *p2EnabledAddr = 0;  // Disable P2 (will be re-enabled for network)
+                    } else {
+                        // Normal connection - standard intro transition
+                        *goalGameModeAddr = CC_GAME_MODE_OPENING;  // 3 = intro/opening sequence
+                        *newSceneFlagAddr = 1;                     // trigger scene transition
+                    }
                     
                     // Direct UDP debug logging (bypasses disabled logging in release)
                     {
@@ -2214,13 +2406,16 @@ struct DllMain
                     }
                 }
 
-                if ( clientMode.isNetplay() )
+                // F1 FIX: Also check netMan.config.mode for F1 connections
+                if ( clientMode.isNetplay() || netMan.config.mode.isNetplay() )
                 {
                     if ( netMan.config.hostPlayer != 1 && netMan.config.hostPlayer != 2 )
                         THROW_EXCEPTION ( "hostPlayer=%u", ERROR_INVALID_HOST_CONFIG, netMan.config.hostPlayer );
 
                     // Determine the player numbers
-                    if ( clientMode.isHost() )
+                    // F1 FIX: Use netMan.config.mode if clientMode isn't set yet
+                    ClientMode effectiveMode = clientMode.isNetplay() ? clientMode : netMan.config.mode;
+                    if ( effectiveMode.isHost() )
                     {
                         localPlayer = netMan.config.hostPlayer;
                         remotePlayer = ( 3 - netMan.config.hostPlayer );
@@ -2233,7 +2428,8 @@ struct DllMain
 
                     netMan.setRemotePlayer ( remotePlayer );
 
-                    if ( clientMode.isHost() )
+                    // F1 FIX: Use effectiveMode for consistency
+                    if ( effectiveMode.isHost() )
                     {
                         serverCtrlSocket = SmartSocket::listenTCP ( this, address.port );
                         LOG ( "serverCtrlSocket=%08x", serverCtrlSocket.get() );
@@ -2326,6 +2522,7 @@ struct DllMain
                       netMan.config.rollbackDelay, netMan.config.winCount, netMan.config.hostPlayer,
                       localPlayer, remotePlayer, netMan.config.names[0], netMan.config.names[1] );
                 break;
+            }
 
             default:
                 if ( clientMode.isSpectate() )
@@ -2625,7 +2822,7 @@ extern "C" BOOL APIENTRY DllMain ( HMODULE, DWORD reason, LPVOID )
             }
             catch ( const Exception& exc )
             {
-                LOG ( "Exception during DLL initialization: %s", exc.what() );
+                LOG ( "Exception during DLL initialization: %s", exc.str().c_str() );
                 exit ( -1 );
             }
 #ifdef NDEBUG

@@ -18,7 +18,8 @@
       "mcp__ghidra__get_xrefs_to",
       "Bash(grep:*)",
       "Bash(python3:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Read(///**)"
     ]
   },
   "enableAllProjectMcpServers": true,

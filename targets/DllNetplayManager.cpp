@@ -1032,6 +1032,15 @@ bool NetplayManager::isRemoteInputReady() const
         return true;  // Game can continue with local input only
     }
     
+    // F1 DEBUG: Log state when checking remote input readiness
+    static int debugCounter = 0;
+    if (++debugCounter % 600 == 0) {  // Log every 10 seconds at 60fps
+        char syncMsg[256];
+        sprintf(syncMsg, "F1_SYNC_CHECK: isRemoteInputReady state=%d, mode=%d, index=%d",
+                (int)_state.value, (int)config.mode.value, getIndex());
+        udpLog(syncMsg);
+    }
+    
     if ( _state.value < NetplayState::CharaSelect || _state.value == NetplayState::Skippable
             || _state.value == NetplayState::Loading || _state.value == NetplayState::RetryMenu
          || _state.value == NetplayState::CharaIntro )
@@ -1112,6 +1121,15 @@ void NetplayManager::setRngState ( const RngState& rngState )
 
 bool NetplayManager::isRngStateReady ( bool shouldSyncRngState ) const
 {
+    // F1 DEBUG: Log RNG state readiness check
+    static int rngDebugCounter = 0;
+    if (++rngDebugCounter % 600 == 0) {  // Log every 10 seconds at 60fps
+        char rngMsg[256];
+        sprintf(rngMsg, "F1_RNG_CHECK: isRngStateReady shouldSync=%d, mode=%d, state=%d",
+                shouldSyncRngState, (int)config.mode.value, (int)_state.value);
+        udpLog(rngMsg);
+    }
+    
     if ( !shouldSyncRngState
             || config.mode.isHost() || config.mode.isBroadcast() || config.mode.isOffline()
             || _state.value < NetplayState::CharaSelect )
@@ -1479,8 +1497,16 @@ void NetplayManager::initiateOnlineConnection ( const std::string& hostIp, uint1
         LOG ( "Preparing network state for connection to %s:%d", hostIp.c_str(), port );
         udpLog ( "```OFFLINE->ONLINE: Preparing for network sync" );
         
-        // Step 4: Set state to PreInitial for CCCaster sync protocol
-        setState ( NetplayState::PreInitial );
+        // Step 4: F1 FIX - Don't change state if already in CharaSelect or later
+        // The state machine doesn't allow going backwards, and we don't need to
+        if (_state == NetplayState::Unknown || _state == NetplayState::PreInitial || _state == NetplayState::Initial) {
+            setState ( NetplayState::PreInitial );
+        } else {
+            LOG ( "F1: Already in state %s, not changing state", _state );
+            char stateMsg[256];
+            sprintf(stateMsg, "```F1_STATE: Keeping current state %d for F1 connection", (int)_state.value);
+            udpLog(stateMsg);
+        }
         
         // MainApp will handle actual TCP connection via SmartSocket::connectTCP
         // Once connected, CCCaster's normal sync protocol will take over

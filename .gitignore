@@ -31,7 +31,9 @@ debugging
 meepster/
 trainingtool/
 CasterStatsFork/
-CLAUDE.md
-docs/CCCaster_Technical_Analysis.md
-CLAUDE.md
+
+
+/docs
+*.md
+.claude/settings.local.json
 CLAUDE.md
