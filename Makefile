@@ -87,6 +87,11 @@ DEFINES += -DMBAA_EXE='"$(MBAA_EXE)"' -DBINARY='"$(BINARY)"' -DFOLDER='"$(FOLDER
 DEFINES += -DHOOK_DLL='"$(FOLDER)\\$(DLL)"' -DLAUNCHER='"$(FOLDER)\\$(LAUNCHER)"' -DUPDATER='"$(UPDATER)"'
 DEFINES += -DRELAY_LIST='"$(RELAY_LIST)"' -DTAG='"$(TAG)"'
 DEFINES += -DLOBBY_LIST='"$(LOBBY_LIST)"'
+
+# Multi-game support - set BUILD_MBAC=1 for MBAC, otherwise defaults to MBAA
+ifdef BUILD_MBAC
+DEFINES += -DBUILD_MBAC
+endif
 INCLUDES = -I$(CURDIR) -I$(CURDIR)/netplay -I$(CURDIR)/lib -I$(CURDIR)/tests -I$(CURDIR)/3rdparty -I$(CURDIR)/sequences
 INCLUDES += -I$(CURDIR)/3rdparty/cereal/include -I$(CURDIR)/3rdparty/gtest/include -I$(CURDIR)/3rdparty/minhook/include
 INCLUDES += -I$(CURDIR)/3rdparty/d3dhook -I$(CURDIR)/3rdparty/framedisplay -I$(CURDIR)/3rdparty/imgui -I$(CURDIR)/3rdparty/imgui/backends
@@ -129,6 +134,25 @@ endif
 
 
 all: $(DEFAULT_TARGET)
+
+# Multi-game build targets
+build_mbaa:
+	@echo "Building for MBAACC v1.07..."
+	@$(MAKE) release
+
+build_mbac:
+	@echo "Building for MBAC v1.03a..."
+	@BUILD_MBAC=1 $(MAKE) release
+
+all_games: clean
+	@echo "Building all supported games..."
+	@$(MAKE) build_mbaa
+	@mv cccaster.v3.1.006.zip cccaster_mbaa.v3.1.006.zip
+	@$(MAKE) clean
+	@$(MAKE) build_mbac
+	@mv cccaster.v3.1.006.zip cccaster_mbac.v3.1.006.zip
+	@echo "✅ Built: cccaster_mbaa.v3.1.006.zip"
+	@echo "✅ Built: cccaster_mbac.v3.1.006.zip"
 
 # target-profile: STRIP = $(TOUCH)
 # target-profile: DEFINES += -DNDEBUG -DRELEASE -DDISABLE_LOGGING -DDISABLE_ASSERTS

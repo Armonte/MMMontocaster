@@ -1,3 +1,4 @@
+#include "GameConfigInstance.hpp"
 #include "DllAsmHacks.hpp"
 #include "Messages.hpp"
 #include "DllNetplayManager.hpp"

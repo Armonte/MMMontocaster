@@ -1,3 +1,4 @@
+#include "GameConfigInstance.hpp"
 #include "DllRollbackManager.hpp"
 #include "MemDump.hpp"
 #include "DllAsmHacks.hpp"

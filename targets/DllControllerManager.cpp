@@ -1,3 +1,4 @@
+#include "GameConfigInstance.hpp"
 #include "DllControllerManager.hpp"
 #include "DllOverlayUi.hpp"
 #include "DllHacks.hpp"

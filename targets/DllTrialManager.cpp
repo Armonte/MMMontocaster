@@ -1,3 +1,4 @@
+#include "GameConfigInstance.hpp"
 #include "CharacterSelect.hpp"
 #include "Constants.hpp"
 #include "DllTrialManager.hpp"

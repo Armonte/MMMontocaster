@@ -1,3 +1,4 @@
+#include "GameConfigInstance.hpp"
 #include "DllHacks.hpp"
 #include "DllAsmHacks.hpp"
 #include "Exceptions.hpp"
@@ -267,12 +268,12 @@ SyncHash::SyncHash ( IndexedFrame indexedFrame )
 {
     this->indexedFrame = indexedFrame;
 
-    char data [ sizeof ( uint32_t ) * 3 + CC_RNG_STATE3_SIZE ];
+    char data [ sizeof ( uint32_t ) * 3 + g_gameConfig.getRngState3Size() ];
 
     memcpy ( &data[0], CC_RNG_STATE0_ADDR, sizeof ( uint32_t ) );
     memcpy ( &data[4], CC_RNG_STATE1_ADDR, sizeof ( uint32_t ) );
     memcpy ( &data[8], CC_RNG_STATE2_ADDR, sizeof ( uint32_t ) );
-    memcpy ( &data[12], CC_RNG_STATE3_ADDR, CC_RNG_STATE3_SIZE );
+    memcpy ( &data[12], CC_RNG_STATE3_ADDR, g_gameConfig.getRngState3Size() );
 
     getMD5 ( data, sizeof ( data ), hash );
 

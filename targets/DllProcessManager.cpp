@@ -3,6 +3,7 @@
 #include "Constants.hpp"
 #include "Exceptions.hpp"
 #include "ErrorStringsExt.hpp"
+#include "GameConfigInstance.hpp"
 
 #include <windows.h>
 #include <direct.h>
@@ -20,18 +21,18 @@ void ProcessManager::writeGameInput ( uint8_t player, uint16_t direction, uint16
 
     // LOG ( "player=%d; direction=%d; buttons=%04x", player, direction, buttons );
 
-    char *const baseAddr = * ( char ** ) CC_PTR_TO_WRITE_INPUT_ADDR;
+    char *const baseAddr = * ( char ** ) g_gameConfig.getInputBufferPtrAddr();
 
     switch ( player )
     {
         case 1:
-            ( * ( uint16_t * ) ( baseAddr + CC_P1_OFFSET_DIRECTION ) ) = direction;
-            ( * ( uint16_t * ) ( baseAddr + CC_P1_OFFSET_BUTTONS ) ) = buttons;
+            ( * ( uint16_t * ) ( baseAddr + g_gameConfig.getP1DirectionOffset() ) ) = direction;
+            ( * ( uint16_t * ) ( baseAddr + g_gameConfig.getP1ButtonsOffset() ) ) = buttons;
             break;
 
         case 2:
-            ( * ( uint16_t * ) ( baseAddr + CC_P2_OFFSET_DIRECTION ) ) = direction;
-            ( * ( uint16_t * ) ( baseAddr + CC_P2_OFFSET_BUTTONS ) ) = buttons;
+            ( * ( uint16_t * ) ( baseAddr + g_gameConfig.getP2DirectionOffset() ) ) = direction;
+            ( * ( uint16_t * ) ( baseAddr + g_gameConfig.getP2ButtonsOffset() ) ) = buttons;
             break;
 
         default:
@@ -44,10 +45,10 @@ MsgPtr ProcessManager::getRngState ( uint32_t index ) const
 {
     RngState *rngState = new RngState ( index );
 
-    rngState->rngState0 = *CC_RNG_STATE0_ADDR;
-    rngState->rngState1 = *CC_RNG_STATE1_ADDR;
-    rngState->rngState2 = *CC_RNG_STATE2_ADDR;
-    copy ( CC_RNG_STATE3_ADDR, CC_RNG_STATE3_ADDR + CC_RNG_STATE3_SIZE, rngState->rngState3.begin() );
+    rngState->rngState0 = *g_gameConfig.getRngState0Addr();
+    rngState->rngState1 = *g_gameConfig.getRngState1Addr();
+    rngState->rngState2 = *g_gameConfig.getRngState2Addr();
+    copy ( g_gameConfig.getRngState3Addr(), g_gameConfig.getRngState3Addr() + g_gameConfig.getRngState3Size(), rngState->rngState3.begin() );
 
     return MsgPtr ( rngState );
 }
@@ -56,11 +57,11 @@ void ProcessManager::setRngState ( const RngState& rngState )
 {
     LOG ( "rngState=%s", rngState.dump() );
 
-    *CC_RNG_STATE0_ADDR = rngState.rngState0;
-    *CC_RNG_STATE1_ADDR = rngState.rngState1;
-    *CC_RNG_STATE2_ADDR = rngState.rngState2;
+    *g_gameConfig.getRngState0Addr() = rngState.rngState0;
+    *g_gameConfig.getRngState1Addr() = rngState.rngState1;
+    *g_gameConfig.getRngState2Addr() = rngState.rngState2;
 
-    copy ( rngState.rngState3.begin(), rngState.rngState3.end(), CC_RNG_STATE3_ADDR );
+    copy ( rngState.rngState3.begin(), rngState.rngState3.end(), g_gameConfig.getRngState3Addr() );
 }
 
 void ProcessManager::connectPipe()

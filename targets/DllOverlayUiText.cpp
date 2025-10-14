@@ -1,3 +1,4 @@
+#include "GameConfigInstance.hpp"
 #include "DllOverlayUi.hpp"
 #include "DllOverlayPrimitives.hpp"
 #include "DllHacks.hpp"

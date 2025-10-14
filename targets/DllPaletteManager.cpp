@@ -1,3 +1,4 @@
+#include "GameConfigInstance.hpp"
 #include "PaletteManager.hpp"
 #include "DllAsmHacks.hpp"
 #include "Logger.hpp"

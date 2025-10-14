@@ -1,3 +1,4 @@
+#include "GameConfigInstance.hpp"
 #include "SpectatorManager.hpp"
 #include "DllNetplayManager.hpp"
 #include "ProcessManager.hpp"

@@ -18,6 +18,7 @@
 #include "DllRollbackManager.hpp"
 #include "DllTrialManager.hpp"
 #include "ExternalIpAddress.hpp"
+#include "GameConfigInstance.hpp"
 
 #include <windows.h>
 
@@ -63,7 +64,7 @@ using namespace std;
 
 #define LOG_SYNC(FORMAT, ...)                                                                                       \
     LOG_TO ( syncLog, "%s [%u] %s [%s] " FORMAT,                                                                    \
-             gameModeStr ( *CC_GAME_MODE_ADDR ), *CC_GAME_MODE_ADDR,                                                \
+             gameModeStr ( *g_gameConfig.getGameModeAddr() ), *g_gameConfig.getGameModeAddr(),                      \
              netMan.getState(), netMan.getIndexedFrame(), ## __VA_ARGS__ )
 
 #define LOG_SYNC_CHARACTER(N)                                                                                       \
@@ -197,7 +198,7 @@ struct DllMain
             case NetplayState::Initial:
             case NetplayState::AutoCharaSelect:
                 // Skip rendering while loading character select
-                *CC_SKIP_FRAMES_ADDR = 1;
+                *g_gameConfig.getSkipFramesAddr() = 1;
                 break;
 
             case NetplayState::InGame:
@@ -228,10 +229,10 @@ struct DllMain
                     // Fast-forward implemented by skipping the rendering every other frame
                     if ( doneSkipping && remoteIndexedFrame.value > netMan.getIndexedFrame().value + 2 * NUM_INPUTS )
                     {
-                        *CC_SKIP_FRAMES_ADDR = 1;
+                        *g_gameConfig.getSkipFramesAddr() = 1;
                         doneSkipping = false;
                     }
-                    else if ( !doneSkipping && *CC_SKIP_FRAMES_ADDR == 0 )
+                    else if ( !doneSkipping && *g_gameConfig.getSkipFramesAddr() == 0 )
                     {
                         doneSkipping = true;
                     }
@@ -247,10 +248,10 @@ struct DllMain
                     if ( doneSkipping && remoteIndexedFrame.value > netMan.getIndexedFrame().value + 2 * NUM_INPUTS )
                     {
                         uint32_t framesToSkip = remoteIndexedFrame.value - (netMan.getIndexedFrame().value + 2 * NUM_INPUTS) - 1;
-                        *CC_SKIP_FRAMES_ADDR = framesToSkip;
+                        *g_gameConfig.getSkipFramesAddr() = framesToSkip;
                         doneSkipping = false;
                     }
-                    else if ( !doneSkipping && *CC_SKIP_FRAMES_ADDR == 0 )
+                    else if ( !doneSkipping && *g_gameConfig.getSkipFramesAddr() == 0 )
                     {
                         doneSkipping = true;
                         spectateHardSync = false;
@@ -365,7 +366,7 @@ struct DllMain
                 if ( replayInputs )
                 {
                     if ( repMan.getGameMode ( netMan.getIndexedFrame() ) )
-                        ASSERT ( repMan.getGameMode ( netMan.getIndexedFrame() ) == *CC_GAME_MODE_ADDR );
+                        ASSERT ( repMan.getGameMode ( netMan.getIndexedFrame() ) == *g_gameConfig.getGameModeAddr() );
 
                     if ( ! repMan.getStateStr ( netMan.getIndexedFrame() ).empty() )
                         ASSERT ( repMan.getStateStr ( netMan.getIndexedFrame() ) == netMan.getState().str() );
@@ -389,7 +390,7 @@ struct DllMain
                         }
 
                         const string before = format ( "%s [%u] %s [%s]",
-                                                       gameModeStr ( *CC_GAME_MODE_ADDR ), *CC_GAME_MODE_ADDR,
+                                                       gameModeStr ( *g_gameConfig.getGameModeAddr() ), *g_gameConfig.getGameModeAddr(),
                                                        netMan.getState(), netMan.getIndexedFrame() );
 
                         // Indicate we're re-running to the current frame
@@ -399,7 +400,7 @@ struct DllMain
                         if ( rollMan.loadState ( target, netMan ) )
                         {
                             // Start fast-forwarding now
-                            *CC_SKIP_FRAMES_ADDR = 1;
+                            *g_gameConfig.getSkipFramesAddr() = 1;
 
                             LOG_TO ( syncLog, "%s Rollback: target=[%s]; actual=[%s]",
                                      before, target, netMan.getIndexedFrame() );
@@ -605,7 +606,7 @@ struct DllMain
             if ( rollMan.loadState ( netMan.getLastChangedFrame(), netMan ) )
             {
                 // Start fast-forwarding now
-                *CC_SKIP_FRAMES_ADDR = 1;
+                *g_gameConfig.getSkipFramesAddr() = 1;
 
                 LOG_TO ( syncLog, "%s Rollback: target=[%s]; actual=[%s]",
                          before, netMan.getLastChangedFrame(), netMan.getIndexedFrame() );
@@ -682,7 +683,7 @@ struct DllMain
             TrialManager::frameStepTrial();
         }
         // LOG_SYNC ( "SFX 0x%X: CC_SFX_ARRAY=%u; sfxFilterArray=%u; sfxMuteArray=%u", SFX_NUM,
-        //            CC_SFX_ARRAY_ADDR[SFX_NUM], AsmHacks::sfxFilterArray[SFX_NUM], AsmHacks::sfxMuteArray[SFX_NUM] );
+        //            g_gameConfig.getSfxArrayAddr()[SFX_NUM], AsmHacks::sfxFilterArray[SFX_NUM], AsmHacks::sfxMuteArray[SFX_NUM] );
 
 #ifndef RELEASE
         if ( ! replayInputs )
@@ -710,7 +711,7 @@ struct DllMain
                     if ( rollMan.loadState ( target, netMan ) )
                     {
                         // Start fast-forwarding now
-                        *CC_SKIP_FRAMES_ADDR = 1;
+                        *g_gameConfig.getSkipFramesAddr() = 1;
 
                         LOG_TO ( syncLog, "%s Rollback: target=[%s]; actual=[%s]",
                                  before, netMan.getLastChangedFrame(), netMan.getIndexedFrame() );
@@ -760,7 +761,7 @@ struct DllMain
                 if ( rollMan.loadState ( target, netMan ) )
                 {
                     // Start fast-forwarding now
-                    *CC_SKIP_FRAMES_ADDR = 1;
+                    *g_gameConfig.getSkipFramesAddr() = 1;
 
                     LOG_SYNC ( "Reinputs: 0x%04x 0x%04x", netMan.getRawInput ( 1 ), netMan.getRawInput ( 2 ) );
 
@@ -911,8 +912,8 @@ struct DllMain
             LOG_SYNC_CHARACTER ( 1 );
             LOG_SYNC_CHARACTER ( 2 );
             LOG_SYNC ( "roundOverTimer=%d; introState=%u; roundTimer=%u; realTimer=%u; hitsparks=%u; camera={ %d, %d }",
-                       roundOverTimer, *CC_INTRO_STATE_ADDR, *CC_ROUND_TIMER_ADDR, *CC_REAL_TIMER_ADDR,
-                       *CC_HIT_SPARKS_ADDR, *CC_CAMERA_X_ADDR, *CC_CAMERA_Y_ADDR );
+                       roundOverTimer, *g_gameConfig.getIntroStateAddr(), *g_gameConfig.getRoundTimerAddr(), *g_gameConfig.getRealTimerAddr(),
+                       *g_gameConfig.getHitSparksAddr(), *g_gameConfig.getCameraXAddr(), *g_gameConfig.getCameraYAddr() );
             return;
         }
 #endif // NOT DISABLE_LOGGING
@@ -931,7 +932,7 @@ struct DllMain
             fastFwdStopFrame.value = 0;
 
             // Re-enable regular rendering once done
-            *CC_SKIP_FRAMES_ADDR = 0;
+            *g_gameConfig.getSkipFramesAddr() = 0;
 
             // Finalize rollback sound effects
             rollMan.finishedRerunSounds();
@@ -939,17 +940,17 @@ struct DllMain
         else
         {
             // Skip rendering while fast-forwarding
-            *CC_SKIP_FRAMES_ADDR = 1;
+            *g_gameConfig.getSkipFramesAddr() = 1;
         }
 
         LOG_SYNC ( "Reinputs: 0x%04x 0x%04x", netMan.getRawInput ( 1 ), netMan.getRawInput ( 2 ) );
         LOG_SYNC ( "roundOverTimer=%d; introState=%u; roundTimer=%u; realTimer=%u; hitsparks=%u; camera={ %d, %d }",
-                   roundOverTimer, *CC_INTRO_STATE_ADDR, *CC_ROUND_TIMER_ADDR, *CC_REAL_TIMER_ADDR,
-                   *CC_HIT_SPARKS_ADDR, *CC_CAMERA_X_ADDR, *CC_CAMERA_Y_ADDR );
+                   roundOverTimer, *g_gameConfig.getIntroStateAddr(), *g_gameConfig.getRoundTimerAddr(), *g_gameConfig.getRealTimerAddr(),
+                   *g_gameConfig.getHitSparksAddr(), *g_gameConfig.getCameraXAddr(), *g_gameConfig.getCameraYAddr() );
 
         // LOG_SYNC ( "ReSFX 0x%X: CC_SFX_ARRAY=%u; sfxFilterArray=%u; sfxMuteArray=%u", SFX_NUM,
-        //            CC_SFX_ARRAY_ADDR[SFX_NUM], AsmHacks::sfxFilterArray[SFX_NUM], AsmHacks::sfxMuteArray[SFX_NUM] );
-        if ( ! *CC_SKIP_FRAMES_ADDR ) {
+        //            g_gameConfig.getSfxArrayAddr()[SFX_NUM], AsmHacks::sfxFilterArray[SFX_NUM], AsmHacks::sfxMuteArray[SFX_NUM] );
+        if ( ! *g_gameConfig.getSkipFramesAddr() ) {
             LOG_SYNC ( "rollback inputs done" );
         }
     }
@@ -972,8 +973,8 @@ struct DllMain
             checkRoundOver();
 
         // Need to manually set the intro state to 0 during rollback
-        if ( netMan.isInRollback() && netMan.getFrame() > CC_PRE_GAME_INTRO_FRAMES && *CC_INTRO_STATE_ADDR )
-            *CC_INTRO_STATE_ADDR = 0;
+        if ( netMan.isInRollback() && netMan.getFrame() > CC_PRE_GAME_INTRO_FRAMES && *g_gameConfig.getIntroStateAddr() )
+            *g_gameConfig.getIntroStateAddr() = 0;
 
         // Perform the frame step
         if ( fastFwdStopFrame.value )
@@ -992,7 +993,7 @@ struct DllMain
         if ( replayInputs && ( replaySpeed == 1 || KeyboardState::isDown ( VK_SPACE ) ) )
             DllFrameRate::desiredFps = numeric_limits<double>::max();
         else if ( replayInputs && replaySpeed == 2 )
-            *CC_SKIP_FRAMES_ADDR = 1;
+            *g_gameConfig.getSkipFramesAddr() = 1;
 #endif
     }
 
@@ -1204,17 +1205,17 @@ struct DllMain
         if ( *CC_P1_PUPPET_STATE_ADDR == 0 ) {
             p1_over = *CC_P1_NO_INPUT_FLAG_ADDR;
         } else {
-            ASSERT ( *CC_P3_PUPPET_STATE_ADDR == 0 );
-            ASSERT ( *CC_P3_ENABLED_FLAG_ADDR );
-            p1_over = *CC_P3_NO_INPUT_FLAG_ADDR;
+            ASSERT ( *g_gameConfig.getP3PuppetStateAddr() == 0 );
+            ASSERT ( *g_gameConfig.getP3EnabledFlagAddr() );
+            p1_over = *g_gameConfig.getP3NoInputFlagAddr();
         }
         // ditto for p2
         if ( *CC_P2_PUPPET_STATE_ADDR == 0 ) {
             p2_over = *CC_P2_NO_INPUT_FLAG_ADDR;
         } else {
-            ASSERT ( *CC_P4_PUPPET_STATE_ADDR == 0 );
-            ASSERT ( *CC_P4_ENABLED_FLAG_ADDR );
-            p2_over = *CC_P4_NO_INPUT_FLAG_ADDR;
+            ASSERT ( *g_gameConfig.getP4PuppetStateAddr() == 0 );
+            ASSERT ( *g_gameConfig.getP4EnabledFlagAddr() );
+            p2_over = *g_gameConfig.getP4NoInputFlagAddr();
         }
         const bool isOver = p1_over && p2_over;
 
@@ -1783,12 +1784,12 @@ struct DllMain
 
                 procMan.ipcSend ( serverCtrlSocket->address );
 
-                *CC_DAMAGE_LEVEL_ADDR = 2;
-                *CC_TIMER_SPEED_ADDR = 2;
-                *CC_WIN_COUNT_VS_ADDR = ( uint32_t ) ( netMan.config.winCount ? netMan.config.winCount : 2 );
+                *g_gameConfig.getDamageLevelAddr() = 2;
+                *g_gameConfig.getTimerSpeedAddr() = 2;
+                *g_gameConfig.getWinCountVsAddr() = ( uint32_t ) ( netMan.config.winCount ? netMan.config.winCount : 2 );
 
-                // *CC_WIN_COUNT_VS_ADDR = 1;
-                // *CC_DAMAGE_LEVEL_ADDR = 4;
+                // *g_gameConfig.getWinCountVsAddr() = 1;
+                // *g_gameConfig.getDamageLevelAddr() = 4;
 
                 // Wait for final InitialGameState message before going to NetplayState::Initial
                 break;
@@ -1886,12 +1887,12 @@ struct DllMain
                 minRollbackSpacing = clamped<uint8_t> ( netMan.config.rollback, 2, 4 );
                 rollbackTimer = minRollbackSpacing;
 
-                *CC_DAMAGE_LEVEL_ADDR = 2;
-                *CC_TIMER_SPEED_ADDR = 2;
-                *CC_WIN_COUNT_VS_ADDR = ( uint32_t ) ( netMan.config.winCount ? netMan.config.winCount : 2 );
+                *g_gameConfig.getDamageLevelAddr() = 2;
+                *g_gameConfig.getTimerSpeedAddr() = 2;
+                *g_gameConfig.getWinCountVsAddr() = ( uint32_t ) ( netMan.config.winCount ? netMan.config.winCount : 2 );
 
-                // *CC_WIN_COUNT_VS_ADDR = 1;
-                // *CC_DAMAGE_LEVEL_ADDR = 4;
+                // *g_gameConfig.getWinCountVsAddr() = 1;
+                // *g_gameConfig.getDamageLevelAddr() = 4;
 
                 // Rollback specific game hacks
                 if ( netMan.getRollback() )
@@ -1900,7 +1901,7 @@ struct DllMain
                     WRITE_ASM_HACK ( AsmHacks::hijackIntroState );
 
                     // Disable stage animations (TODO)
-                    *CC_STAGE_ANIMATION_OFF_ADDR = 1;
+                    *g_gameConfig.getStageAnimationOffAddr() = 1;
                 }
 
                 if ( netMan.autoReplaySave )
@@ -1974,7 +1975,7 @@ struct DllMain
     void callback()
     {
         // Check if the game is being closed
-        if ( ! ( * CC_ALIVE_FLAG_ADDR ) )
+        if ( ! ( * g_gameConfig.getAliveFlagAddr() ) )
         {
             // Disconnect the main data socket if netplay
             if ( clientMode.isNetplay() && dataSocket )
@@ -2003,7 +2004,7 @@ struct DllMain
     // Constructor
     DllMain()
         : SpectatorManager ( &netMan, &procMan )
-        , worldTimerMoniter ( this, Variable::WorldTime, *CC_WORLD_TIMER_ADDR )
+        , worldTimerMoniter ( this, Variable::WorldTime, *g_gameConfig.getWorldTimerAddr() )
         , externalIpAddress ( this )
     {
         // Timer and controller initialization is not done here because of threading issues

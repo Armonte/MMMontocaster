@@ -1,3 +1,4 @@
+#include "GameConfigInstance.hpp"
 #include "DllFrameRate.hpp"
 #include "TimerManager.hpp"
 #include "Constants.hpp"

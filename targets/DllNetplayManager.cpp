@@ -5,6 +5,7 @@
 #include "CharacterSelect.hpp"
 #include "ReplayCreator.hpp"
 #include "DllTrialManager.hpp"
+#include "GameConfigInstance.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -116,8 +117,8 @@ uint16_t NetplayManager::getAutoCharaSelectInput ( uint8_t player )
     *CC_P1_CHARA_SELECTOR_ADDR = ( uint32_t ) charaToSelector ( initial.chara[0] );
     *CC_P2_CHARA_SELECTOR_ADDR = ( uint32_t ) charaToSelector ( initial.chara[1] );
 
-    *CC_P1_CHARACTER_ADDR = ( uint32_t ) initial.chara[0];
-    *CC_P2_CHARACTER_ADDR = ( uint32_t ) initial.chara[1];
+    *g_gameConfig.getP1CharacterAddr() = ( uint32_t ) initial.chara[0];
+    *g_gameConfig.getP2CharacterAddr() = ( uint32_t ) initial.chara[1];
 
     *CC_P1_MOON_SELECTOR_ADDR = ( uint32_t ) initial.moon[0];
     *CC_P2_MOON_SELECTOR_ADDR = ( uint32_t ) initial.moon[1];
@@ -197,8 +198,8 @@ uint16_t NetplayManager::getDemoInput ( uint8_t player )
     if ( exitCountdown > 0 ) {
         exitCountdown--;
         if ( exitCountdown == 20 ) {
-            * ( player == 1 ? CC_P1_X_POSITION_ADDR : CC_P2_X_POSITION_ADDR ) = currentTrial.startingPositions[0];
-            * ( player == 1 ? CC_P2_X_POSITION_ADDR : CC_P1_X_POSITION_ADDR ) = currentTrial.startingPositions[1];
+            * ( player == 1 ? g_gameConfig.getP1XPositionAddr() : g_gameConfig.getP2XPositionAddr() ) = currentTrial.startingPositions[0];
+            * ( player == 1 ? g_gameConfig.getP2XPositionAddr() : g_gameConfig.getP1XPositionAddr() ) = currentTrial.startingPositions[1];
         }
         if ( exitCountdown == 0 )
             TrialManager::playDemo = false;
@@ -216,8 +217,8 @@ uint16_t NetplayManager::getDemoInput ( uint8_t player )
             input = COMBINE_INPUT ( 0, CC_BUTTON_FN2 );
         } else if ( demoCountdown == 50) {
             LOG( "%d, %d", currentTrial.startingPositions[0], currentTrial.startingPositions[1]);
-            * ( player == 1 ? CC_P1_X_POSITION_ADDR : CC_P2_X_POSITION_ADDR ) = currentTrial.startingPositions[0];
-            * ( player == 1 ? CC_P2_X_POSITION_ADDR : CC_P1_X_POSITION_ADDR ) = currentTrial.startingPositions[1];
+            * ( player == 1 ? g_gameConfig.getP1XPositionAddr() : g_gameConfig.getP2XPositionAddr() ) = currentTrial.startingPositions[0];
+            * ( player == 1 ? g_gameConfig.getP2XPositionAddr() : g_gameConfig.getP1XPositionAddr() ) = currentTrial.startingPositions[1];
         }
         demoCountdown--;
         return input;
@@ -298,11 +299,11 @@ uint16_t NetplayManager::getInGameInput ( uint8_t player )
             if ( input & COMBINE_INPUT ( 0, CC_BUTTON_FN2 ) )
             {
                 if ( _trainingResetType == 0 )
-                    swap ( *CC_P1_X_POSITION_ADDR , *CC_P2_X_POSITION_ADDR );
+                    swap ( *g_gameConfig.getP1XPositionAddr() , *g_gameConfig.getP2XPositionAddr() );
                 else if ( _trainingResetType == -1 )
-                    * ( player == 1 ? CC_P1_X_POSITION_ADDR : CC_P2_X_POSITION_ADDR ) = -65536;
+                    * ( player == 1 ? g_gameConfig.getP1XPositionAddr() : g_gameConfig.getP2XPositionAddr() ) = -65536;
                 else if ( _trainingResetType == 1 )
-                    * ( player == 1 ? CC_P1_X_POSITION_ADDR : CC_P2_X_POSITION_ADDR ) = 65536;
+                    * ( player == 1 ? g_gameConfig.getP1XPositionAddr() : g_gameConfig.getP2XPositionAddr() ) = 65536;
 
                 if ( _trainingResetType != 2 )
                     swap ( *CC_P1_FACING_FLAG_ADDR , *CC_P2_FACING_FLAG_ADDR );
@@ -316,20 +317,20 @@ uint16_t NetplayManager::getInGameInput ( uint8_t player )
         {
             if ( _trainingResetType == -1 )
             {
-                * ( player == 1 ? CC_P1_X_POSITION_ADDR : CC_P2_X_POSITION_ADDR ) = -45056;
-                * ( player == 1 ? CC_P2_X_POSITION_ADDR : CC_P1_X_POSITION_ADDR ) = -61440;
+                * ( player == 1 ? g_gameConfig.getP1XPositionAddr() : g_gameConfig.getP2XPositionAddr() ) = -45056;
+                * ( player == 1 ? g_gameConfig.getP2XPositionAddr() : g_gameConfig.getP1XPositionAddr() ) = -61440;
                 *CC_CAMERA_X_ADDR = -26624;
             }
             else if ( _trainingResetType == 1 )
             {
-                * ( player == 1 ? CC_P1_X_POSITION_ADDR : CC_P2_X_POSITION_ADDR ) = 45056;
-                * ( player == 1 ? CC_P2_X_POSITION_ADDR : CC_P1_X_POSITION_ADDR ) = 61440;
+                * ( player == 1 ? g_gameConfig.getP1XPositionAddr() : g_gameConfig.getP2XPositionAddr() ) = 45056;
+                * ( player == 1 ? g_gameConfig.getP2XPositionAddr() : g_gameConfig.getP1XPositionAddr() ) = 61440;
                 *CC_CAMERA_X_ADDR = 26624;
             }
             else if ( _trainingResetType == 2 )
             {
-                * ( player == 1 ? CC_P1_X_POSITION_ADDR : CC_P2_X_POSITION_ADDR ) = 16384;
-                * ( player == 1 ? CC_P2_X_POSITION_ADDR : CC_P1_X_POSITION_ADDR ) = -16384;
+                * ( player == 1 ? g_gameConfig.getP1XPositionAddr() : g_gameConfig.getP2XPositionAddr() ) = 16384;
+                * ( player == 1 ? g_gameConfig.getP2XPositionAddr() : g_gameConfig.getP1XPositionAddr() ) = -16384;
             }
 
             ++_trainingResetState;
@@ -651,7 +652,7 @@ void NetplayManager::setRemotePlayer ( uint8_t player )
 
 void NetplayManager::updateFrame()
 {
-    _indexedFrame.parts.frame = ( *CC_WORLD_TIMER_ADDR ) - _startWorldTime;
+    _indexedFrame.parts.frame = ( *g_gameConfig.getWorldTimerAddr() ) - _startWorldTime;
 }
 
 uint32_t NetplayManager::getBufferedPreserveStartIndex() const
@@ -682,7 +683,7 @@ void NetplayManager::setState ( NetplayState state )
         {
             // Start from the initial index and frame
             _startWorldTime = 0;
-            *CC_WORLD_TIMER_ADDR = initial.indexedFrame.parts.frame;
+            *g_gameConfig.getWorldTimerAddr() = initial.indexedFrame.parts.frame;
             _indexedFrame = initial.indexedFrame;
         }
         else
@@ -691,7 +692,7 @@ void NetplayManager::setState ( NetplayState state )
             ++_indexedFrame.parts.index;
 
             // Start counting from frame=0 again
-            _startWorldTime = *CC_WORLD_TIMER_ADDR;
+            _startWorldTime = *g_gameConfig.getWorldTimerAddr();
             _indexedFrame.parts.frame = 0;
         }
 
@@ -738,7 +739,7 @@ void NetplayManager::setState ( NetplayState state )
             rngState->rngState0 = *CC_RNG_STATE0_ADDR;
             rngState->rngState1 = *CC_RNG_STATE1_ADDR;
             rngState->rngState2 = *CC_RNG_STATE2_ADDR;
-            copy ( CC_RNG_STATE3_ADDR, CC_RNG_STATE3_ADDR + CC_RNG_STATE3_SIZE, rngState->rngState3.begin() );
+            copy ( CC_RNG_STATE3_ADDR, CC_RNG_STATE3_ADDR + g_gameConfig.getRngState3Size(), rngState->rngState3.begin() );
             _roundRngStates.push_back(rngState);
         }
 
@@ -1172,8 +1173,8 @@ void NetplayManager::exportInputs() {
     strftime( timebuf, 20, "%y%m%d-%H%M%S", localtime( &now ) );
 
     sprintf( namebuf, "ReplayVS/%sx%s_%s.repraw",
-             getShortCharaName( *CC_P1_CHARACTER_ADDR ),
-             getShortCharaName( *CC_P2_CHARACTER_ADDR) ,
+             getShortCharaName( *g_gameConfig.getP1CharacterAddr() ),
+             getShortCharaName( *g_gameConfig.getP2CharacterAddr()) ,
              timebuf );
     ofstream repFile2 ( namebuf, ios::out );
     vector<int> c = getInGameIndexes();
@@ -1212,20 +1213,20 @@ void NetplayManager::exportResults()
     if ( _localPlayer == 1 ) {
         sprintf( buf, "%s,%s-%s,%d,%s,%s-%s,%d,%d",
                  n1.c_str(), moon[*CC_P1_MOON_SELECTOR_ADDR].c_str(),
-                 getShortCharaName(*CC_P1_CHARACTER_ADDR),
+                 getShortCharaName(*g_gameConfig.getP1CharacterAddr()),
                  *CC_P1_WINS_ADDR,
                  n2.c_str(), moon[*CC_P2_MOON_SELECTOR_ADDR].c_str(),
-                 getShortCharaName(*CC_P2_CHARACTER_ADDR),
+                 getShortCharaName(*g_gameConfig.getP2CharacterAddr()),
                  *CC_P2_WINS_ADDR,
                  (int)now
                );
     } else {
         sprintf( buf, "%s,%s-%s,%d,%s,%s-%s,%d,%d",
                  n2.c_str(), moon[*CC_P2_MOON_SELECTOR_ADDR].c_str(),
-                 getShortCharaName(*CC_P2_CHARACTER_ADDR),
+                 getShortCharaName(*g_gameConfig.getP2CharacterAddr()),
                  *CC_P2_WINS_ADDR,
                  n1.c_str(), moon[*CC_P1_MOON_SELECTOR_ADDR].c_str(),
-                 getShortCharaName(*CC_P1_CHARACTER_ADDR),
+                 getShortCharaName(*g_gameConfig.getP1CharacterAddr()),
                  *CC_P1_WINS_ADDR,
                  (int)now
                );

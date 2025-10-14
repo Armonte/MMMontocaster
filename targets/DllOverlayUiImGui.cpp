@@ -1,3 +1,4 @@
+#include "GameConfigInstance.hpp"
 #include "DllOverlayUi.hpp"
 #include "ProcessManager.hpp"
 #include "Constants.hpp"
