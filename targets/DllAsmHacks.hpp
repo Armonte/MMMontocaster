@@ -345,7 +345,7 @@ static const AsmList saveReplay =
         0xE9, 0x10, 0x07, 0x00, 0x00,                               // jmp 0x48283e
     } },
     { ( void * ) 0x4830A4, {
-        0xE8, INLINE_DWORD ( ( ( char * ) &saveReplayCb ) - 0x4830A4 - 5 ),   // call callback
+        0xE8, INLINE_DWORD ( ( uintptr_t ) ( ( char * ) &saveReplayCb ) - 0x4830A4 - 5 ),   // call callback
         0x90, //0x90, 0x90, 0x90, 0x90, 0x90,
         0xE9, 0xF2, 0xFE, 0xFF, 0xFF,                               // jmp 0x482FA1
     } },
@@ -509,7 +509,7 @@ extern "C" void charaSelectColorCb();
 // The color values can be effectively overridden here. This is only effective during character select.
 static const Asm hijackCharaSelectColors =
     { ( void * ) 0x489CD1, {
-        0xE8, INLINE_DWORD ( ( ( char * ) &charaSelectColorCb ) - 0x489CD1 - 5 ),       // call charaSelectColorCb
+        0xE8, INLINE_DWORD ( ( uintptr_t ) ( ( char * ) &charaSelectColorCb ) - 0x489CD1 - 5 ),       // call charaSelectColorCb
         0x90, 0x90, 0x90,                                                               // nops
     } };
 
@@ -522,7 +522,7 @@ static const AsmList hijackLoadingStateColors =
 {
     { ( void * ) 0x448202, {
         0x50,                                                                           // push eax
-        0xE8, INLINE_DWORD ( ( ( char * ) &loadingStateColorCb ) - 0x448202 - 1 - 5 ),  // call loadingStateColorCb
+        0xE8, INLINE_DWORD ( ( uintptr_t ) ( ( char * ) &loadingStateColorCb ) - 0x448202 - 1 - 5 ),  // call loadingStateColorCb
         0x58,                                                                           // pop eax
         0x85, 0xC0,                                                                     // test eax,eax
         0xEB, 0x38,                                                                     // jmp 0x448245
@@ -557,7 +557,7 @@ extern "C" void addExtraDrawCallsCb();
 static const AsmList addExtraDraws =
 {
     { ( void * ) 0x432CD2, {
-            0xE8, INLINE_DWORD ( ( ( char * ) &addExtraDrawCallsCb ) - 0x432CD2 - 5 ),       // call charaSelectColorCb
+            0xE8, INLINE_DWORD ( ( uintptr_t ) ( ( char * ) &addExtraDrawCallsCb ) - 0x432CD2 - 5 ),       // call charaSelectColorCb
             0x6A, 0xFF,                                          // Push -1
             0xE9, 0x54, 0x00, 0x00, 0x00                         // jmp 432D32
         } },
@@ -573,7 +573,7 @@ static const AsmList addExtraTextures =
          0x8B, 0x8C, 0x24, 0x1C, 0x01, 0x00, 0x00
          } },*/
     { ( void * ) 0x41BE38, {
-         0xE8, INLINE_DWORD ( ( ( char * ) &addExtraTexturesCb ) - 0x41BE38 - 5 ),       // call addExtraTexturesCb
+         0xE8, INLINE_DWORD ( ( uintptr_t ) ( ( char * ) &addExtraTexturesCb ) - 0x41BE38 - 5 ),       // call addExtraTexturesCb
          0xC3
     } },
 };
