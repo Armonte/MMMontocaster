@@ -10,6 +10,7 @@
 #include "CharacterSelect.hpp"
 #include "SpectatorManager.hpp"
 #include "NetplayStates.hpp"
+#include "GameConfigInstance.hpp"
 
 #include <windows.h>
 #include <ws2tcpip.h>

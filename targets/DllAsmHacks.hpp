@@ -172,7 +172,7 @@ typedef std::vector<Asm> AsmList;
 
 // Add a call to the callback function just before the beginning of the game's main message loop.
 // Note the message loop can get run multiple times per frame step, so be sure to check the world timer.
-static const AsmList hookMainLoop =
+inline const AsmList hookMainLoop =
 {
     { MM_HOOK_CALL1_ADDR, {
         0xE8, INLINE_DWORD ( ( ( char * ) &callback ) - MM_HOOK_CALL1_ADDR - 5 ),   // call callback
@@ -193,7 +193,7 @@ static const AsmList hookMainLoop =
 };
 
 // Enable disabled stages and fix Ryougi stage music looping
-static const AsmList enableDisabledStages =
+inline const AsmList enableDisabledStages =
 {
     // Enable disabled stages
     { ( void * ) 0x54CEBC, INLINE_DWORD_FF },
@@ -225,13 +225,13 @@ static const AsmList enableDisabledStages =
 };
 
 // Disable the FPS limit by setting the game's perceived perf freq to 1
-static const Asm disableFpsLimit = { CC_PERF_FREQ_ADDR, { INLINE_DWORD ( 1 ), INLINE_DWORD ( 0 ) } };
+inline const Asm disableFpsLimit = { CC_PERF_FREQ_ADDR, { INLINE_DWORD ( 1 ), INLINE_DWORD ( 0 ) } };
 
 // Disable the code that updates the FPS counter
-static const Asm disableFpsCounter = { ( void * ) 0x41FD43, INLINE_NOP_THREE_TIMES };
+inline const Asm disableFpsCounter = { ( void * ) 0x41FD43, INLINE_NOP_THREE_TIMES };
 
 // Disable normal joystick and keyboard controls
-static const AsmList hijackControls =
+inline const AsmList hijackControls =
 {
     // Disable joystick controls
     { ( void * ) 0x41F098, INLINE_NOP_TWO_TIMES   },
@@ -252,7 +252,7 @@ static const AsmList hijackControls =
 };
 
 // Copy dynamic menu variables and hijack the menu confirms
-static const AsmList hijackMenu =
+inline const AsmList hijackMenu =
 {
     // Copy the value of the current menu index (edi) to a location we control.
     // This hack uses the strategy of jumping around the extra spaces left in between code.
@@ -311,7 +311,7 @@ static const AsmList hijackMenu =
 };
 
 // Increment a counter at the beginning of the round when players can move
-static const AsmList detectRoundStart =
+inline const AsmList detectRoundStart =
 {
     { ( void * ) 0x440D16, {
         0xB9, INLINE_DWORD ( &roundStartCounter ),                  // mov ecx,[&roundStartCounter]
@@ -334,7 +334,7 @@ static const AsmList detectRoundStart =
 extern "C" void saveReplayCb();
 
 // Copies the name of the replay
-static const AsmList saveReplay =
+inline const AsmList saveReplay =
 {
     { ( void * ) 0x4824D4, {
         0xA3, INLINE_DWORD ( &replayName ),                         // mov [&replayName],eax
@@ -369,7 +369,7 @@ static const AsmList saveReplay =
 
 // This copies an auto replay save flag to a non-dynamic memory location.
 // Used to detect when the auto replay save is done and the menu is up.
-static const Asm detectAutoReplaySave =
+inline const Asm detectAutoReplaySave =
     { ( void * ) 0x482D9B, {
         0x8D, 0x88, 0xD0, 0x00, 0x00, 0x00,                         // lea ecx,[eax+000000D0]
         0x89, 0x0D, INLINE_DWORD ( &autoReplaySaveStatePtr ),       // mov [&autoReplaySaveStatePtr],ecx
@@ -378,16 +378,16 @@ static const Asm detectAutoReplaySave =
     } };
 
 // Skips check of if the game is already open
-static const Asm multiWindow = { ( void * ) MULTIPLE_MELTY, { 0xEB } }; // jmp 0040D262
+inline const Asm multiWindow = { ( void * ) MULTIPLE_MELTY, { 0xEB } }; // jmp 0040D262
 
 // Force the game to go to a certain mode
-static const Asm forceGotoVersus    = { ( void * ) 0x42B475, { 0xEB, 0x3F } }; // jmp 0042B4B6
-static const Asm forceGotoVersusCPU = { ( void * ) 0x42B475, { 0xEB, 0x5C } }; // jmp 0042B4D3
-static const Asm forceGotoTraining  = { ( void * ) 0x42B475, { 0xEB, 0x22 } }; // jmp 0042B499
-static const Asm forceGotoReplay  = { ( void * ) 0x42B475, { 0xE9, 0xC7, 0x00, 0x00, 0x00 } }; // jmp 0042B541
+inline const Asm forceGotoVersus    = { ( void * ) 0x42B475, { 0xEB, 0x3F } }; // jmp 0042B4B6
+inline const Asm forceGotoVersusCPU = { ( void * ) 0x42B475, { 0xEB, 0x5C } }; // jmp 0042B4D3
+inline const Asm forceGotoTraining  = { ( void * ) 0x42B475, { 0xEB, 0x22 } }; // jmp 0042B499
+inline const Asm forceGotoReplay  = { ( void * ) 0x42B475, { 0xE9, 0xC7, 0x00, 0x00, 0x00 } }; // jmp 0042B541
 
 // Hijack the game's Escape key so we can control when it exits the game
-static const Asm hijackEscapeKey =
+inline const Asm hijackEscapeKey =
     { ( void * ) 0x4A0070, {
         0x80, 0x3D, INLINE_DWORD ( &enableEscapeToExit ), 0x00,     // cmp byte ptr [&enableEscapeToExit],00
         0xA0, INLINE_DWORD ( 0x5544F1 ),                            // mov ax,[005544F1]
@@ -405,7 +405,7 @@ static const Asm hijackEscapeKey =
 
 // This increments a counter for each sound effect played,
 // but only actually plays the sound if its muted or at zero plays.
-static const AsmList filterRepeatedSfx =
+inline const AsmList filterRepeatedSfx =
 {
     { ( void * ) 0x4DD836, {
         0xB8, INLINE_DWORD ( sfxMuteArray ),                        // mov eax,sfxMuteArray
@@ -451,7 +451,7 @@ static const AsmList filterRepeatedSfx =
 };
 
 // Mutes the next playback of a specific sound effect
-static const AsmList muteSpecificSfx =
+inline const AsmList muteSpecificSfx =
 {
     { ( void * ) 0x40EEA1, {
         0x8B, 0x14, 0x24,                                           // mov edx,[esp]
@@ -492,22 +492,22 @@ static const AsmList muteSpecificSfx =
 };
 
 // Disables the code that sets the intro state to 0. This is so we can manually set it during rollback
-static const Asm hijackIntroState = { ( void * ) 0x45C1F2, INLINE_NOP_SEVEN_TIMES };
+inline const Asm hijackIntroState = { ( void * ) 0x45C1F2, INLINE_NOP_SEVEN_TIMES };
 
 // Prevent training mode music from reseting
-static const Asm disableTrainingMusicReset = { ( void * ) 0x472C6D, { 0xEB, 0x05 } }; // jmp 00472C74
+inline const Asm disableTrainingMusicReset = { ( void * ) 0x472C6D, { 0xEB, 0x05 } }; // jmp 00472C74
 
 // Fix the super flash overlays on the two boss stages.
 // This is done by changing the string that the games searches for in the stage config .ini.
 // Search for 'IsGiantStage' in bg/BgList.ini inside 0000.p.
-static const Asm fixBossStageSuperFlashOverlay = { ( void * ) 0x53B3C8, INLINE_FF_12_BYTES };
+inline const Asm fixBossStageSuperFlashOverlay = { ( void * ) 0x53B3C8, INLINE_FF_12_BYTES };
 
 // The color load callback during character select
 extern "C" void charaSelectColorCb();
 
 // Inserts a callback just after the color data is loaded into memory, but before it is read into the sprites.
 // The color values can be effectively overridden here. This is only effective during character select.
-static const Asm hijackCharaSelectColors =
+inline const Asm hijackCharaSelectColors =
     { ( void * ) 0x489CD1, {
         0xE8, INLINE_DWORD ( ( uintptr_t ) ( ( char * ) &charaSelectColorCb ) - 0x489CD1 - 5 ),       // call charaSelectColorCb
         0x90, 0x90, 0x90,                                                               // nops
@@ -518,7 +518,7 @@ extern "C" void loadingStateColorCb();
 
 // Inserts a callback just after the color data is loaded into memory, but before it is read into the sprites.
 // The color values can be effectively overridden here. This is only effective during the loading state.
-static const AsmList hijackLoadingStateColors =
+inline const AsmList hijackLoadingStateColors =
 {
     { ( void * ) 0x448202, {
         0x50,                                                                           // push eax
@@ -540,7 +540,7 @@ static const AsmList hijackLoadingStateColors =
 };
 
 // Don't render Game UI
-static const AsmList disableHealthBars =
+inline const AsmList disableHealthBars =
 {
     { ( void * ) 0x425235, INLINE_NOP_SEVEN_TIMES }, // renderCharaIcon->nop
     { ( void * ) 0x42523c, INLINE_NOP_SEVEN_TIMES }, // renderMoon->nop
@@ -554,7 +554,7 @@ static const AsmList disableHealthBars =
 
 extern "C" void addExtraDrawCallsCb();
 
-static const AsmList addExtraDraws =
+inline const AsmList addExtraDraws =
 {
     { ( void * ) 0x432CD2, {
             0xE8, INLINE_DWORD ( ( uintptr_t ) ( ( char * ) &addExtraDrawCallsCb ) - 0x432CD2 - 5 ),       // call charaSelectColorCb
@@ -566,7 +566,7 @@ static const AsmList addExtraDraws =
 
 extern "C" void addExtraTexturesCb();
 
-static const AsmList addExtraTextures =
+inline const AsmList addExtraTextures =
 {
      /*{ ( void * ) 0x41c0f1, {
          0xE8, INLINE_DWORD ( ( ( char * ) &callbackExtraTextures ) - 0x41c0f1 - 5 ),       // call addExtraTexturesCb
@@ -586,7 +586,7 @@ extern "C" {
 
 extern std::map<int, std::map<int, std::array<DWORD, 256>>> palettes;
 
-static const AsmList loadCustomPalettesAsm = {
+inline const AsmList loadCustomPalettesAsm = {
     PATCHJUMP(0x0041f87a, _naked_paletteCallback),
 };
 

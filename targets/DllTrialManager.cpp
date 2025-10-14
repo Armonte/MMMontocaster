@@ -69,7 +69,7 @@ void loadTrialFolder() {
     string fileNameBase = "cccaster/trials/";
     string moon;
     vector<string> trialFiles;
-    switch ( *CC_P1_MOON_SELECTOR_ADDR )
+    switch ( *g_gameConfig.getP1MoonSelectorAddr() )
         {
         case 0:
             moon = "C";
@@ -400,7 +400,7 @@ void saveTrial( Trial trial ) {
     trial.demoInputsFormatted = formatDemo( trial.demoInputs );
     string fileNameBase = "cccaster/trials/";
     string moon;
-    switch ( *CC_P1_MOON_SELECTOR_ADDR )
+    switch ( *g_gameConfig.getP1MoonSelectorAddr() )
     {
         case 0:
             moon = "C";
@@ -473,11 +473,11 @@ void frameStepTrial()
 {
     uint32_t seqAddr;
     uint32_t partnerAddr;
-    if ( *CC_P1_PUPPET_STATE_ADDR ) {
+    if ( *g_gameConfig.getP1PuppetStateAddr() ) {
         seqAddr = *CC_P3_SEQUENCE_ADDR;
-        partnerAddr = *CC_P1_SEQUENCE_ADDR;
+        partnerAddr = *g_gameConfig.getP1SequenceAddr();
     } else {
-        seqAddr = *CC_P1_SEQUENCE_ADDR;
+        seqAddr = *g_gameConfig.getP1SequenceAddr();
         partnerAddr = *CC_P3_SEQUENCE_ADDR;
     }
     if ( charaTrials.empty() ) {
@@ -498,7 +498,7 @@ void frameStepTrial()
             currentHitcount,
             0,
             currentTrialIndex,
-            *CC_P2_SEQUENCE_ADDR,
+            *g_gameConfig.getP2SequenceAddr(),
             seqAddr,
             currentTrial.comboSeq[comboTrialPosition]);
     */
@@ -512,7 +512,7 @@ void frameStepTrial()
 #endif // LOGGING
     if ( !comboDrop ) {
         if ( seqAddr == currentTrial.comboSeq[0] &&
-             *CC_P2_SEQUENCE_ADDR != 0 && !comboStart ) {
+             *g_gameConfig.getP2SequenceAddr() != 0 && !comboStart ) {
             comboTrialPosition = 1;
             comboStart = true;
             currentHitcount = getHitcount();
@@ -527,18 +527,18 @@ void frameStepTrial()
         } else if ( getHitcount() > currentHitcount ) {
             currentHitcount = getHitcount();
         }
-        if ( *CC_P2_SEQUENCE_ADDR == 0 ) {
+        if ( *g_gameConfig.getP2SequenceAddr() == 0 ) {
             comboDrop = true;
             comboDropPos = comboTrialPosition;
             comboStart = false;
             currentHitcount = 0;
         }
     } else if ( seqAddr == 0 &&
-                *CC_P2_SEQUENCE_ADDR == 0 ) {
+                *g_gameConfig.getP2SequenceAddr() == 0 ) {
         if ( comboTrialPosition < currentTrial.comboSeq.size() )
             comboTrialPosition = 0;
     } else if ( seqAddr == currentTrial.comboSeq[0] &&
-                *CC_P2_SEQUENCE_ADDR != 0 ) {
+                *g_gameConfig.getP2SequenceAddr() != 0 ) {
         comboTrialPosition = 1;
         comboDrop = false;
         comboStart = true;
@@ -696,37 +696,37 @@ void DllTrialManager::frameStepTrial()
             TrialManager::currentTrialIndex,
             //(*CC_P1_COMBO_OFFSET_ADDR * 0x2C),
             //((*CC_P1_COMBO_OFFSET_ADDR * 0x2C) / 4 + CC_P1_COMBO_HIT_BASE_ADDR ),
-            *CC_P2_SEQUENCE_ADDR,
-            *CC_P1_SEQUENCE_ADDR,
+            *g_gameConfig.getP2SequenceAddr(),
+            *g_gameConfig.getP1SequenceAddr(),
             comboSeq[TrialManager::currentTrialIndex][TrialManager::comboTrialPosition]);
     //TrialManager::dtext = buf;
     //cout << TrialManager::dtext << endl;
     if ( !comboDrop ) {
-        if ( *CC_P1_SEQUENCE_ADDR == comboSeq[TrialManager::currentTrialIndex][0] &&
-             *CC_P2_SEQUENCE_ADDR != 0 && !comboStart ) {
+        if ( *g_gameConfig.getP1SequenceAddr() == comboSeq[TrialManager::currentTrialIndex][0] &&
+             *g_gameConfig.getP2SequenceAddr() != 0 && !comboStart ) {
             TrialManager::comboTrialPosition = 1;
             comboStart = true;
             currentHitcount = getHitcount();
-        } else if ( ( *CC_P1_SEQUENCE_ADDR == comboSeq[TrialManager::currentTrialIndex][TrialManager::comboTrialPosition] ||
-                      ( ( comboSeq[TrialManager::currentTrialIndex][TrialManager::comboTrialPosition] == 0 ) && ( *CC_P1_SEQUENCE_ADDR == 12 ) ) )
+        } else if ( ( *g_gameConfig.getP1SequenceAddr() == comboSeq[TrialManager::currentTrialIndex][TrialManager::comboTrialPosition] ||
+                      ( ( comboSeq[TrialManager::currentTrialIndex][TrialManager::comboTrialPosition] == 0 ) && ( *g_gameConfig.getP1SequenceAddr() == 12 ) ) )
                     && comboStart &&
                     ( (comboHit[TrialManager::currentTrialIndex][TrialManager::comboTrialPosition]) ?
                       (getHitcount() > currentHitcount) : true ) ) {
             TrialManager::comboTrialPosition += 1;
             currentHitcount = getHitcount();
         }
-        if ( *CC_P2_SEQUENCE_ADDR == 0 ) {
+        if ( *g_gameConfig.getP2SequenceAddr() == 0 ) {
             comboDrop = true;
             comboDropPos = TrialManager::comboTrialPosition;
             comboStart = false;
             currentHitcount = 0;
             //    TrialManager::comboTrialPosition = -1;
         }
-    } else if ( *CC_P1_SEQUENCE_ADDR == 0 &&
-                *CC_P2_SEQUENCE_ADDR == 0 ) {
+    } else if ( *g_gameConfig.getP1SequenceAddr() == 0 &&
+                *g_gameConfig.getP2SequenceAddr() == 0 ) {
         TrialManager::comboTrialPosition = 0;
-    } else if ( *CC_P1_SEQUENCE_ADDR ==  comboSeq[TrialManager::currentTrialIndex][0] &&
-                *CC_P2_SEQUENCE_ADDR != 0 ) {
+    } else if ( *g_gameConfig.getP1SequenceAddr() ==  comboSeq[TrialManager::currentTrialIndex][0] &&
+                *g_gameConfig.getP2SequenceAddr() != 0 ) {
         TrialManager::comboTrialPosition = 1;
         comboDrop = false;
         comboStart = true;
@@ -773,7 +773,7 @@ void DllTrialManager::loadTrialFile()
 {
     string fileNameBase = "cccaster/trials/";
     string moon;
-    switch ( *CC_P1_MOON_SELECTOR_ADDR )
+    switch ( *g_gameConfig.getP1MoonSelectorAddr() )
     {
         case 0:
             moon = "C";
@@ -1493,8 +1493,8 @@ void DllTrialManager::drawAttackDisplay()
     //drawTextBorder(test, leftX, y, 0xa, 0xe );
     //drawText(testVal, rightX-0xa*2, y, 0xa, 0xe );
 
-    int currentMeter = *CC_P1_METER_ADDR;
-    if ( *CC_P2_SEQUENCE_ADDR != 0 ) {
+    int currentMeter = *g_gameConfig.getP1MeterAddr();
+    if ( *g_gameConfig.getP2SequenceAddr() != 0 ) {
         if ( currentMeter > lastSeenMeter ) {
             meterGained = currentMeter - lastSeenMeter;
             totalMeterGained += meterGained;

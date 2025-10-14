@@ -4,8 +4,11 @@
 #include <vector>
 #include <string>
 
-// Forward declarations
-struct Asm;
+// Forward declare AsmHacks namespace and Asm struct from DllAsmHacks.hpp
+namespace AsmHacks {
+    struct Asm;
+    typedef std::vector<Asm> AsmList;
+}
 
 /**
  * GameConfig - Abstract interface for game-specific configuration
@@ -248,31 +251,31 @@ public:
     // ASSEMBLY HACKS (game-specific)
     // ===================================================================
     
-    virtual const std::vector<Asm>& getHookMainLoop() const = 0;
-    virtual const std::vector<Asm>& getEnableDisabledStages() const = 0;
-    virtual const Asm& getDisableFpsLimit() const = 0;
-    virtual const Asm& getDisableFpsCounter() const = 0;
-    virtual const std::vector<Asm>& getHijackControls() const = 0;
-    virtual const std::vector<Asm>& getHijackMenu() const = 0;
-    virtual const std::vector<Asm>& getDetectRoundStart() const = 0;
-    virtual const std::vector<Asm>& getSaveReplay() const = 0;
-    virtual const Asm& getDetectAutoReplaySave() const = 0;
-    virtual const Asm& getMultiWindow() const = 0;
-    virtual const Asm& getForceGotoVersus() const = 0;
-    virtual const Asm& getForceGotoVersusCPU() const = 0;
-    virtual const Asm& getForceGotoTraining() const = 0;
-    virtual const Asm& getForceGotoReplay() const = 0;
-    virtual const Asm& getHijackEscapeKey() const = 0;
-    virtual const std::vector<Asm>& getFilterRepeatedSfx() const = 0;
-    virtual const std::vector<Asm>& getMuteSpecificSfx() const = 0;
-    virtual const Asm& getHijackIntroState() const = 0;
-    virtual const Asm& getDisableTrainingMusicReset() const = 0;
-    virtual const Asm& getFixBossStageSuperFlashOverlay() const = 0;
-    virtual const Asm& getHijackCharaSelectColors() const = 0;
-    virtual const std::vector<Asm>& getHijackLoadingStateColors() const = 0;
-    virtual const std::vector<Asm>& getDisableHealthBars() const = 0;
-    virtual const std::vector<Asm>& getAddExtraDraws() const = 0;
-    virtual const std::vector<Asm>& getAddExtraTextures() const = 0;
-    virtual const std::vector<Asm>& getLoadCustomPalettesAsm() const = 0;
+    virtual const AsmHacks::AsmList& getHookMainLoop() const = 0;
+    virtual const AsmHacks::AsmList& getEnableDisabledStages() const = 0;
+    virtual const AsmHacks::Asm& getDisableFpsLimit() const = 0;
+    virtual const AsmHacks::Asm& getDisableFpsCounter() const = 0;
+    virtual const AsmHacks::AsmList& getHijackControls() const = 0;
+    virtual const AsmHacks::AsmList& getHijackMenu() const = 0;
+    virtual const AsmHacks::AsmList& getDetectRoundStart() const = 0;
+    virtual const AsmHacks::AsmList& getSaveReplay() const = 0;
+    virtual const AsmHacks::Asm& getDetectAutoReplaySave() const = 0;
+    virtual const AsmHacks::Asm& getMultiWindow() const = 0;
+    virtual const AsmHacks::Asm& getForceGotoVersus() const = 0;
+    virtual const AsmHacks::Asm& getForceGotoVersusCPU() const = 0;
+    virtual const AsmHacks::Asm& getForceGotoTraining() const = 0;
+    virtual const AsmHacks::Asm& getForceGotoReplay() const = 0;
+    virtual const AsmHacks::Asm& getHijackEscapeKey() const = 0;
+    virtual const AsmHacks::AsmList& getFilterRepeatedSfx() const = 0;
+    virtual const AsmHacks::AsmList& getMuteSpecificSfx() const = 0;
+    virtual const AsmHacks::Asm& getHijackIntroState() const = 0;
+    virtual const AsmHacks::Asm& getDisableTrainingMusicReset() const = 0;
+    virtual const AsmHacks::Asm& getFixBossStageSuperFlashOverlay() const = 0;
+    virtual const AsmHacks::Asm& getHijackCharaSelectColors() const = 0;
+    virtual const AsmHacks::AsmList& getHijackLoadingStateColors() const = 0;
+    virtual const AsmHacks::AsmList& getDisableHealthBars() const = 0;
+    virtual const AsmHacks::AsmList& getAddExtraDraws() const = 0;
+    virtual const AsmHacks::AsmList& getAddExtraTextures() const = 0;
+    virtual const AsmHacks::AsmList& getLoadCustomPalettesAsm() const = 0;
 };
 

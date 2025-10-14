@@ -9,6 +9,13 @@
 #include <windows.h>
 #include <direct.h>
 
+// Game executable name - set at compile time
+#ifdef BUILD_MBAC
+    #define GAME_EXE_NAME "mbacPC.exe"
+#else
+    #define GAME_EXE_NAME MBAA_EXE  // "MBAA.exe"
+#endif
+
 #include <algorithm>
 #include <iostream>
 #include <fstream>
@@ -157,7 +164,7 @@ void ProcessManager::openGame ( bool highPriority, bool isTraining )
     string path = appDir + LAUNCHER;
     vector<string> stringArgs;
     stringArgs.push_back ( "\"" + path + "\"" );
-    stringArgs.push_back ( "\"" + gameDir + MBAA_EXE + "\"" );
+    stringArgs.push_back ( "\"" + gameDir + GAME_EXE_NAME + "\"" );
     stringArgs.push_back ( "\"" + appDir + HOOK_DLL + "\"" );
     stringArgs.push_back ( "\"" + appDir + "framestep.dll" + "\"" );
     if ( isTraining )
@@ -370,7 +377,7 @@ string ProcessManager::fetchGameUserName()
 
 array<char, 10> ProcessManager::fetchKeyboardConfig()
 {
-    const string file = gameDir + MBAA_EXE;
+    const string file = gameDir + GAME_EXE_NAME;
 
     LOG ( "Reading: %s", file );
 

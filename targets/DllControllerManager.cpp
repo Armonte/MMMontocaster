@@ -60,13 +60,13 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
     // {
     //     _controllerAttached = false;
 
-    //     if ( !DllOverlayUi::isEnabled() && *CC_GAME_MODE_ADDR == CC_GAME_MODE_CHARA_SELECT )
+    //     if ( !DllOverlayUi::isEnabled() && *g_gameConfig.getGameModeAddr() == CC_GAME_MODE_CHARA_SELECT )
     //         toggleOverlay = true;
     // }
 
     // Toggle with a keyboard hotkey
     if ( KeyboardState::isPressed ( VK_TOGGLE_TRIAL_MENU ) &&
-         *CC_GAME_MODE_ADDR == CC_GAME_MODE_IN_GAME )
+         *g_gameConfig.getGameModeAddr() == CC_GAME_MODE_IN_GAME )
     {
         toggleTrialMenu = true;
     }
@@ -111,7 +111,7 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
         }
 
         // Toggle with 3 held joystick buttons + any direction during trial mode
-        if ( *CC_GAME_MODE_ADDR == CC_GAME_MODE_IN_GAME
+        if ( *g_gameConfig.getGameModeAddr() == CC_GAME_MODE_IN_GAME
              && numJoystickButtonsDown ( controller ) >= 3
              && !controller->getJoystickState().isNeutral()
              && isTrial )
@@ -119,7 +119,7 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
             toggleTrialMenu = true;
         }
         // Toggle with 3 held joystick buttons + any direction during chara select
-        if ( *CC_GAME_MODE_ADDR == CC_GAME_MODE_CHARA_SELECT
+        if ( *g_gameConfig.getGameModeAddr() == CC_GAME_MODE_CHARA_SELECT
                 && numJoystickButtonsDown ( controller ) >= 3
                 && !controller->getJoystickState().isNeutral() )
         {
@@ -213,11 +213,11 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
         if ( _playerControllers[localPlayer - 1] ) {
             uint16_t input = getInput ( _playerControllers[localPlayer - 1] );
             if ( localPlayer == 1 ) {
-                if ( *CC_P1_FACING_FLAG_ADDR )
+                if ( *g_gameConfig.getP1FacingFlagAddr() )
                     input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
             }
             if ( localPlayer == 2) {
-                if ( *CC_P2_FACING_FLAG_ADDR )
+                if ( *g_gameConfig.getP2FacingFlagAddr() )
                     input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
             }
             localInputs[0] = input;
@@ -226,11 +226,11 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
         if ( _playerControllers[remotePlayer - 1] ) {
             uint16_t input = getInput ( _playerControllers[remotePlayer - 1] );
             if ( remotePlayer == 1 ) {
-                if ( *CC_P1_FACING_FLAG_ADDR )
+                if ( *g_gameConfig.getP1FacingFlagAddr() )
                     input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
             }
             if ( remotePlayer == 2) {
-                if ( *CC_P2_FACING_FLAG_ADDR )
+                if ( *g_gameConfig.getP2FacingFlagAddr() )
                     input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
             }
             localInputs[1] = input;

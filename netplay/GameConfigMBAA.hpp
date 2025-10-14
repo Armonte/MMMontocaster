@@ -2,7 +2,36 @@
 
 #include "GameConfig.hpp"
 #include "Constants.hpp"
-#include "../targets/DllAsmHacks.hpp"
+
+// Forward declare AsmHacks namespace - don't include DllAsmHacks.hpp to avoid static initialization issues
+namespace AsmHacks {
+    extern const AsmList hookMainLoop;
+    extern const AsmList enableDisabledStages;
+    extern const Asm disableFpsLimit;
+    extern const Asm disableFpsCounter;
+    extern const AsmList hijackControls;
+    extern const AsmList hijackMenu;
+    extern const AsmList detectRoundStart;
+    extern const AsmList saveReplay;
+    extern const Asm detectAutoReplaySave;
+    extern const Asm multiWindow;
+    extern const Asm forceGotoVersus;
+    extern const Asm forceGotoVersusCPU;
+    extern const Asm forceGotoTraining;
+    extern const Asm forceGotoReplay;
+    extern const Asm hijackEscapeKey;
+    extern const AsmList filterRepeatedSfx;
+    extern const AsmList muteSpecificSfx;
+    extern const Asm hijackIntroState;
+    extern const Asm disableTrainingMusicReset;
+    extern const Asm fixBossStageSuperFlashOverlay;
+    extern const Asm hijackCharaSelectColors;
+    extern const AsmList hijackLoadingStateColors;
+    extern const AsmList disableHealthBars;
+    extern const AsmList addExtraDraws;
+    extern const AsmList addExtraTextures;
+    extern const AsmList loadCustomPalettesAsm;
+}
 
 /**
  * GameConfigMBAA - Configuration for MBAACC v1.07
@@ -596,107 +625,107 @@ public:
     // ASSEMBLY HACKS (from DllAsmHacks.hpp)
     // ===================================================================
     
-    const std::vector<Asm>& getHookMainLoop() const override {
+    const AsmHacks::AsmList& getHookMainLoop() const override {
         return AsmHacks::hookMainLoop;
     }
     
-    const std::vector<Asm>& getEnableDisabledStages() const override {
+    const AsmHacks::AsmList& getEnableDisabledStages() const override {
         return AsmHacks::enableDisabledStages;
     }
     
-    const Asm& getDisableFpsLimit() const override {
+    const AsmHacks::Asm& getDisableFpsLimit() const override {
         return AsmHacks::disableFpsLimit;
     }
     
-    const Asm& getDisableFpsCounter() const override {
+    const AsmHacks::Asm& getDisableFpsCounter() const override {
         return AsmHacks::disableFpsCounter;
     }
     
-    const std::vector<Asm>& getHijackControls() const override {
+    const AsmHacks::AsmList& getHijackControls() const override {
         return AsmHacks::hijackControls;
     }
     
-    const std::vector<Asm>& getHijackMenu() const override {
+    const AsmHacks::AsmList& getHijackMenu() const override {
         return AsmHacks::hijackMenu;
     }
     
-    const std::vector<Asm>& getDetectRoundStart() const override {
+    const AsmHacks::AsmList& getDetectRoundStart() const override {
         return AsmHacks::detectRoundStart;
     }
     
-    const std::vector<Asm>& getSaveReplay() const override {
+    const AsmHacks::AsmList& getSaveReplay() const override {
         return AsmHacks::saveReplay;
     }
     
-    const Asm& getDetectAutoReplaySave() const override {
+    const AsmHacks::Asm& getDetectAutoReplaySave() const override {
         return AsmHacks::detectAutoReplaySave;
     }
     
-    const Asm& getMultiWindow() const override {
+    const AsmHacks::Asm& getMultiWindow() const override {
         return AsmHacks::multiWindow;
     }
     
-    const Asm& getForceGotoVersus() const override {
+    const AsmHacks::Asm& getForceGotoVersus() const override {
         return AsmHacks::forceGotoVersus;
     }
     
-    const Asm& getForceGotoVersusCPU() const override {
+    const AsmHacks::Asm& getForceGotoVersusCPU() const override {
         return AsmHacks::forceGotoVersusCPU;
     }
     
-    const Asm& getForceGotoTraining() const override {
+    const AsmHacks::Asm& getForceGotoTraining() const override {
         return AsmHacks::forceGotoTraining;
     }
     
-    const Asm& getForceGotoReplay() const override {
+    const AsmHacks::Asm& getForceGotoReplay() const override {
         return AsmHacks::forceGotoReplay;
     }
     
-    const Asm& getHijackEscapeKey() const override {
+    const AsmHacks::Asm& getHijackEscapeKey() const override {
         return AsmHacks::hijackEscapeKey;
     }
     
-    const std::vector<Asm>& getFilterRepeatedSfx() const override {
+    const AsmHacks::AsmList& getFilterRepeatedSfx() const override {
         return AsmHacks::filterRepeatedSfx;
     }
     
-    const std::vector<Asm>& getMuteSpecificSfx() const override {
+    const AsmHacks::AsmList& getMuteSpecificSfx() const override {
         return AsmHacks::muteSpecificSfx;
     }
     
-    const Asm& getHijackIntroState() const override {
+    const AsmHacks::Asm& getHijackIntroState() const override {
         return AsmHacks::hijackIntroState;
     }
     
-    const Asm& getDisableTrainingMusicReset() const override {
+    const AsmHacks::Asm& getDisableTrainingMusicReset() const override {
         return AsmHacks::disableTrainingMusicReset;
     }
     
-    const Asm& getFixBossStageSuperFlashOverlay() const override {
+    const AsmHacks::Asm& getFixBossStageSuperFlashOverlay() const override {
         return AsmHacks::fixBossStageSuperFlashOverlay;
     }
     
-    const Asm& getHijackCharaSelectColors() const override {
+    const AsmHacks::Asm& getHijackCharaSelectColors() const override {
         return AsmHacks::hijackCharaSelectColors;
     }
     
-    const std::vector<Asm>& getHijackLoadingStateColors() const override {
+    const AsmHacks::AsmList& getHijackLoadingStateColors() const override {
         return AsmHacks::hijackLoadingStateColors;
     }
     
-    const std::vector<Asm>& getDisableHealthBars() const override {
+    const AsmHacks::AsmList& getDisableHealthBars() const override {
         return AsmHacks::disableHealthBars;
     }
     
-    const std::vector<Asm>& getAddExtraDraws() const override {
+    const AsmHacks::AsmList& getAddExtraDraws() const override {
         return AsmHacks::addExtraDraws;
     }
     
-    const std::vector<Asm>& getAddExtraTextures() const override {
+    const AsmHacks::AsmList& getAddExtraTextures() const override {
         return AsmHacks::addExtraTextures;
     }
     
-    const std::vector<Asm>& getLoadCustomPalettesAsm() const override {
+    const AsmHacks::AsmList& getLoadCustomPalettesAsm() const override {
         return AsmHacks::loadCustomPalettesAsm;
     }
 };

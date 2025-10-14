@@ -1,5 +1,6 @@
 #include "GameConfigInstance.hpp"
 #include "DllAsmHacks.hpp"
+#include "DllAsmHacksMBAC.hpp"
 #include "Messages.hpp"
 #include "DllNetplayManager.hpp"
 #include "CharacterSelect.hpp"
@@ -143,7 +144,7 @@ static void loadingStateColorCb2 ( uint32_t *singlePaletteData )
         colorLoadCallback (
             player,
             chara,
-            * ( player == 1 ? CC_P1_COLOR_SELECTOR_ADDR : CC_P2_COLOR_SELECTOR_ADDR ),
+            * ( player == 1 ? g_gameConfig.getP1ColorSelectorAddr() : g_gameConfig.getP2ColorSelectorAddr() ),
             singlePaletteData );
     }
     else if ( numLoadedColors < 2 )
@@ -151,7 +152,7 @@ static void loadingStateColorCb2 ( uint32_t *singlePaletteData )
         colorLoadCallback (
             numLoadedColors + 1,
             ( numLoadedColors == 0 ? chara1 : chara2 ),
-            * ( numLoadedColors == 0 ? CC_P1_COLOR_SELECTOR_ADDR : CC_P2_COLOR_SELECTOR_ADDR ),
+            * ( numLoadedColors == 0 ? g_gameConfig.getP1ColorSelectorAddr() : g_gameConfig.getP2ColorSelectorAddr() ),
             singlePaletteData );
     }
 

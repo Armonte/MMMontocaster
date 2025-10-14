@@ -168,11 +168,11 @@ bool DllRollbackManager::loadState ( IndexedFrame indexedFrame, NetplayManager& 
                 LOG( "Fixing input history for rbFrames %d", rbFrames );
                 // Erase one frame of inputs from the game's replay structs for each frame rolled back.
                 for (; rbFrames > 0; rbFrames--) {
-                    if (!*(RepRound**)CC_REPROUND_TBL_ENDPTR_ADDR) {
+                    if (!*(RepRound**)g_gameConfig.getRepRoundTblEndPtrAddr()) {
                         LOG( "Missing replay table" );
                         break;
                     }
-                    RepRound* curRound = (*(RepRound**)CC_REPROUND_TBL_ENDPTR_ADDR - 1);
+                    RepRound* curRound = (*(RepRound**)g_gameConfig.getRepRoundTblEndPtrAddr() - 1);
                     LOG( "%d", curRound );
                     if (!curRound->inputs) {
                         LOG( "Missing inputs" );

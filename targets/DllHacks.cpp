@@ -250,18 +250,18 @@ void deinitialize()
 // The following constructors should only be called when running in the DLL, ie MBAA's memory space
 InitialGameState::InitialGameState ( IndexedFrame indexedFrame, uint8_t netplayState, bool isTraining )
     : indexedFrame ( indexedFrame )
-    , stage ( *CC_STAGE_SELECTOR_ADDR )
+    , stage ( *g_gameConfig.getStageSelectorAddr() )
     , netplayState ( netplayState )
     , isTraining ( isTraining )
 {
     chara[0] = ( uint8_t ) * CC_P1_CHARACTER_ADDR;
     chara[1] = ( uint8_t ) * CC_P2_CHARACTER_ADDR;
 
-    moon[0] = ( uint8_t ) * CC_P1_MOON_SELECTOR_ADDR;
-    moon[1] = ( uint8_t ) * CC_P2_MOON_SELECTOR_ADDR;
+    moon[0] = ( uint8_t ) * g_gameConfig.getP1MoonSelectorAddr();
+    moon[1] = ( uint8_t ) * g_gameConfig.getP2MoonSelectorAddr();
 
-    color[0] = ( uint8_t ) * CC_P1_COLOR_SELECTOR_ADDR;
-    color[1] = ( uint8_t ) * CC_P2_COLOR_SELECTOR_ADDR;
+    color[0] = ( uint8_t ) * g_gameConfig.getP1ColorSelectorAddr();
+    color[1] = ( uint8_t ) * g_gameConfig.getP2ColorSelectorAddr();
 }
 
 SyncHash::SyncHash ( IndexedFrame indexedFrame )
@@ -277,14 +277,14 @@ SyncHash::SyncHash ( IndexedFrame indexedFrame )
 
     getMD5 ( data, sizeof ( data ), hash );
 
-    if ( *CC_GAME_MODE_ADDR != CC_GAME_MODE_IN_GAME )
+    if ( *g_gameConfig.getGameModeAddr() != CC_GAME_MODE_IN_GAME )
     {
         memset ( &chara[0], 0, sizeof ( CharaHash ) );
         memset ( &chara[1], 0, sizeof ( CharaHash ) );
         chara[0].chara = ( uint16_t ) * CC_P1_CHARACTER_ADDR;
-        chara[0].moon  = ( uint16_t ) * CC_P1_MOON_SELECTOR_ADDR;
+        chara[0].moon  = ( uint16_t ) * g_gameConfig.getP1MoonSelectorAddr();
         chara[1].chara = ( uint16_t ) * CC_P2_CHARACTER_ADDR;
-        chara[1].moon  = ( uint16_t ) * CC_P2_MOON_SELECTOR_ADDR;
+        chara[1].moon  = ( uint16_t ) * g_gameConfig.getP2MoonSelectorAddr();
         return;
     }
 

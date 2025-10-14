@@ -71,7 +71,7 @@ void PresentFrameBegin ( IDirect3DDevice9 *device )
     device->GetViewport ( &viewport );
 
     // Only draw in the main viewport; there should only be one with this width
-    if ( viewport.Width != * CC_SCREEN_WIDTH_ADDR )
+    if ( viewport.Width != * g_gameConfig.getScreenWidthAddr() )
         return;
 
     renderOverlayText ( device, viewport );

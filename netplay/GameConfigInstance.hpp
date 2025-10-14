@@ -59,9 +59,6 @@ public:
     }
 };
 
-// Initialize static member
-GameConfig* GameConfigInstance::instance = nullptr;
-
 // Convenience macro for accessing the global config
 #define g_gameConfig GameConfigInstance::get()
 

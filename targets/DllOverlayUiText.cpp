@@ -300,8 +300,8 @@ void updateSelector ( uint8_t index, int position, const string& line )
     }
     else
     {
-        rect.left  = ( * CC_SCREEN_WIDTH_ADDR ) - rect.right - OVERLAY_TEXT_BORDER - OVERLAY_SELECTOR_X_BORDER;
-        rect.right = ( * CC_SCREEN_WIDTH_ADDR ) - OVERLAY_TEXT_BORDER + OVERLAY_SELECTOR_X_BORDER;
+        rect.left  = ( * g_gameConfig.getScreenWidthAddr() ) - rect.right - OVERLAY_TEXT_BORDER - OVERLAY_SELECTOR_X_BORDER;
+        rect.right = ( * g_gameConfig.getScreenWidthAddr() ) - OVERLAY_TEXT_BORDER + OVERLAY_SELECTOR_X_BORDER;
     }
 
     selector[index] = rect;

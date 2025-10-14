@@ -40,7 +40,7 @@ void enable()
 
 void PresentFrameEnd ( IDirect3DDevice9 *device )
 {
-    if ( !isEnabled || *CC_SKIP_FRAMES_ADDR )
+    if ( !isEnabled || *g_gameConfig.getSkipFramesAddr() )
         return;
 
     static uint64_t last1f = 0, last5f = 0, last30f = 0, last60f = 0;

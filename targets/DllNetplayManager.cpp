@@ -88,7 +88,7 @@ using namespace std;
 
 uint16_t NetplayManager::getPreInitialInput ( uint8_t player )
 {
-    if ( ( *CC_GAME_MODE_ADDR ) == CC_GAME_MODE_MAIN )
+    if ( ( *g_gameConfig.getGameModeAddr() ) == CC_GAME_MODE_MAIN )
         return 0;
 
     AsmHacks::menuConfirmState = 2;
@@ -97,7 +97,7 @@ uint16_t NetplayManager::getPreInitialInput ( uint8_t player )
 
 uint16_t NetplayManager::getInitialInput ( uint8_t player )
 {
-    if ( ( *CC_GAME_MODE_ADDR ) != CC_GAME_MODE_MAIN )
+    if ( ( *g_gameConfig.getGameModeAddr() ) != CC_GAME_MODE_MAIN )
         return getPreInitialInput ( player );
 
     // The host player should select the main menu, so that the host controls training mode
@@ -114,19 +114,19 @@ uint16_t NetplayManager::getInitialInput ( uint8_t player )
 
 uint16_t NetplayManager::getAutoCharaSelectInput ( uint8_t player )
 {
-    *CC_P1_CHARA_SELECTOR_ADDR = ( uint32_t ) charaToSelector ( initial.chara[0] );
-    *CC_P2_CHARA_SELECTOR_ADDR = ( uint32_t ) charaToSelector ( initial.chara[1] );
+    *g_gameConfig.getP1CharaSelectorAddr() = ( uint32_t ) charaToSelector ( initial.chara[0] );
+    *g_gameConfig.getP2CharaSelectorAddr() = ( uint32_t ) charaToSelector ( initial.chara[1] );
 
     *g_gameConfig.getP1CharacterAddr() = ( uint32_t ) initial.chara[0];
     *g_gameConfig.getP2CharacterAddr() = ( uint32_t ) initial.chara[1];
 
-    *CC_P1_MOON_SELECTOR_ADDR = ( uint32_t ) initial.moon[0];
-    *CC_P2_MOON_SELECTOR_ADDR = ( uint32_t ) initial.moon[1];
+    *g_gameConfig.getP1MoonSelectorAddr() = ( uint32_t ) initial.moon[0];
+    *g_gameConfig.getP2MoonSelectorAddr() = ( uint32_t ) initial.moon[1];
 
-    *CC_P1_COLOR_SELECTOR_ADDR = ( uint32_t ) initial.color[0];
-    *CC_P2_COLOR_SELECTOR_ADDR = ( uint32_t ) initial.color[1];
+    *g_gameConfig.getP1ColorSelectorAddr() = ( uint32_t ) initial.color[0];
+    *g_gameConfig.getP2ColorSelectorAddr() = ( uint32_t ) initial.color[1];
 
-    *CC_STAGE_SELECTOR_ADDR = initial.stage;
+    *g_gameConfig.getStageSelectorAddr() = initial.stage;
 
     RETURN_MASH_INPUT ( 0, CC_BUTTON_CONFIRM );
 }
@@ -142,7 +142,7 @@ uint16_t NetplayManager::getCharaSelectInput ( uint8_t player )
     }
 
     // Prevent exiting character select
-    if ( ( * ( player == 1 ? CC_P1_SELECTOR_MODE_ADDR : CC_P2_SELECTOR_MODE_ADDR ) ) == CC_SELECT_CHARA )
+    if ( ( * ( player == 1 ? g_gameConfig.getP1SelectorModeAddr() : g_gameConfig.getP2SelectorModeAddr() ) ) == CC_SELECT_CHARA )
     {
         input &= ~ COMBINE_INPUT ( 0, CC_BUTTON_B | CC_BUTTON_CANCEL );
     }
@@ -164,7 +164,7 @@ uint16_t NetplayManager::getSkippableInput ( uint8_t player )
     if ( config.mode.isReplay() ) {
         uint16_t input = getRawInput ( player );
         AsmHacks::menuConfirmState = 2;
-        if ( *CC_PAUSE_FLAG_ADDR )
+        if ( *g_gameConfig.getPauseFlagAddr() )
         {
             AsmHacks::menuConfirmState = 2;
 
@@ -240,7 +240,7 @@ uint16_t NetplayManager::getInGameInput ( uint8_t player )
 
     // Disable pausing in netplay versus mode. Also only allow start button in versus after holding it for a duration.
     if ( ( ( ( config.mode.isNetplay() && config.mode.isVersus() ) || config.mode.isSpectate() )
-            || ( ! *CC_PAUSE_FLAG_ADDR
+            || ( ! *g_gameConfig.getPauseFlagAddr()
                  && config.mode.isVersus()
                  && heldStartDuration
                  && ! heldButtonInHistory ( player, CC_BUTTON_START, 0, heldStartDuration ) ) )
@@ -250,7 +250,7 @@ uint16_t NetplayManager::getInGameInput ( uint8_t player )
     }
 
     // If the pause menu is up
-    if ( *CC_PAUSE_FLAG_ADDR )
+    if ( *g_gameConfig.getPauseFlagAddr() )
     {
         TrialManager::hideText = true;
         AsmHacks::menuConfirmState = 2;
@@ -266,8 +266,8 @@ uint16_t NetplayManager::getInGameInput ( uint8_t player )
 
     }
     else if ( config.mode.isTraining() && config.mode.isOffline() && player == config.hostPlayer
-              && *CC_DUMMY_STATUS_ADDR != CC_DUMMY_STATUS_DUMMY
-              && *CC_DUMMY_STATUS_ADDR != CC_DUMMY_STATUS_RECORD )
+              && *g_gameConfig.getDummyStatusAddr() != CC_DUMMY_STATUS_DUMMY
+              && *g_gameConfig.getDummyStatusAddr() != CC_DUMMY_STATUS_RECORD )
     {
         TrialManager::hideText = false;
         // Training mode enhancements when not paused
@@ -286,7 +286,7 @@ uint16_t NetplayManager::getInGameInput ( uint8_t player )
 
             input |= COMBINE_INPUT ( 0, CC_BUTTON_FN2 );
             TrialManager::comboTrialPosition = 0;
-            *CC_P1_COMBO_GUARD_ADDR = 50;
+            *g_gameConfig.getP1ComboGuardAddr() = 50;
         }
         else if ( ( _trainingResetState == -2 || _trainingResetState >= 0 )
                   && ! ( input & COMBINE_INPUT ( 0, CC_BUTTON_FN2 ) ) )                     // Completed reset
@@ -306,7 +306,7 @@ uint16_t NetplayManager::getInGameInput ( uint8_t player )
                     * ( player == 1 ? g_gameConfig.getP1XPositionAddr() : g_gameConfig.getP2XPositionAddr() ) = 65536;
 
                 if ( _trainingResetType != 2 )
-                    swap ( *CC_P1_FACING_FLAG_ADDR , *CC_P2_FACING_FLAG_ADDR );
+                    swap ( *g_gameConfig.getP1FacingFlagAddr() , *g_gameConfig.getP2FacingFlagAddr() );
             }
 
             _trainingResetState = -2;
@@ -383,7 +383,7 @@ uint16_t NetplayManager::getRetryMenuInput ( uint8_t player )
     }
 
     // Check if auto replay save is enabled
-    if ( *CC_AUTO_REPLAY_SAVE_ADDR && AsmHacks::autoReplaySaveStatePtr )
+    if ( *g_gameConfig.getAutoReplaySaveAddr() && AsmHacks::autoReplaySaveStatePtr )
     {
         // Prevent mashing through the auto replay save and causing a hang
         if ( *AsmHacks::autoReplaySaveStatePtr == 100 )
@@ -391,7 +391,7 @@ uint16_t NetplayManager::getRetryMenuInput ( uint8_t player )
     }
 
     // Allow saving replays; when manual replay save is selected or any replay save menu is open
-    if ( AsmHacks::currentMenuIndex == 2 || *CC_MENU_STATE_COUNTER_ADDR > _retryMenuStateCounter )
+    if ( AsmHacks::currentMenuIndex == 2 || *g_gameConfig.getMenuStateCounterAddr() > _retryMenuStateCounter )
     {
         AsmHacks::menuConfirmState = 2;
         return input;
@@ -407,7 +407,7 @@ uint16_t NetplayManager::getRetryMenuInput ( uint8_t player )
         MsgPtr msgMenuIndex = getRetryMenuIndex ( getIndex() );
 
         // Check if we're done auto-saving (or not auto-saving)
-        const bool doneAutoSave = ! ( *CC_AUTO_REPLAY_SAVE_ADDR )
+        const bool doneAutoSave = ! ( *g_gameConfig.getAutoReplaySaveAddr() )
                                   || ( AsmHacks::autoReplaySaveStatePtr && *AsmHacks::autoReplaySaveStatePtr > 100 );
 
         // Navigate the menu when the menu index is ready AND we're done auto-saving
@@ -428,7 +428,7 @@ uint16_t NetplayManager::getRetryMenuInput ( uint8_t player )
         MsgPtr msgMenuIndex = getRetryMenuIndex ( getIndex() );
         
         // Check if we're done auto-saving (or not auto-saving)
-        const bool doneAutoSave = ! ( *CC_AUTO_REPLAY_SAVE_ADDR )
+        const bool doneAutoSave = ! ( *g_gameConfig.getAutoReplaySaveAddr() )
                                   || ( AsmHacks::autoReplaySaveStatePtr && *AsmHacks::autoReplaySaveStatePtr > 100 );
 
         // Navigate the menu when the menu index is ready AND we're done auto-saving
@@ -746,8 +746,8 @@ void NetplayManager::setState ( NetplayState state )
         // Entering RetryMenu
         if ( state == NetplayState::RetryMenu )
         {
-            // The actual retry menu is opened at position *CC_MENU_STATE_COUNTER_ADDR + 1
-            _retryMenuStateCounter = *CC_MENU_STATE_COUNTER_ADDR + 1;
+            // The actual retry menu is opened at position *g_gameConfig.getMenuStateCounterAddr() + 1
+            _retryMenuStateCounter = *g_gameConfig.getMenuStateCounterAddr() + 1;
             if ( !config.mode.isSpectate() )
                 exportResults();
         }
@@ -1212,22 +1212,22 @@ void NetplayManager::exportResults()
     string n2 = sanitizePlayerName( config.names[1] );
     if ( _localPlayer == 1 ) {
         sprintf( buf, "%s,%s-%s,%d,%s,%s-%s,%d,%d",
-                 n1.c_str(), moon[*CC_P1_MOON_SELECTOR_ADDR].c_str(),
+                 n1.c_str(), moon[*g_gameConfig.getP1MoonSelectorAddr()].c_str(),
                  getShortCharaName(*g_gameConfig.getP1CharacterAddr()),
-                 *CC_P1_WINS_ADDR,
-                 n2.c_str(), moon[*CC_P2_MOON_SELECTOR_ADDR].c_str(),
+                 *g_gameConfig.getP1WinsAddr(),
+                 n2.c_str(), moon[*g_gameConfig.getP2MoonSelectorAddr()].c_str(),
                  getShortCharaName(*g_gameConfig.getP2CharacterAddr()),
-                 *CC_P2_WINS_ADDR,
+                 *g_gameConfig.getP2WinsAddr(),
                  (int)now
                );
     } else {
         sprintf( buf, "%s,%s-%s,%d,%s,%s-%s,%d,%d",
-                 n2.c_str(), moon[*CC_P2_MOON_SELECTOR_ADDR].c_str(),
+                 n2.c_str(), moon[*g_gameConfig.getP2MoonSelectorAddr()].c_str(),
                  getShortCharaName(*g_gameConfig.getP2CharacterAddr()),
-                 *CC_P2_WINS_ADDR,
-                 n1.c_str(), moon[*CC_P1_MOON_SELECTOR_ADDR].c_str(),
+                 *g_gameConfig.getP2WinsAddr(),
+                 n1.c_str(), moon[*g_gameConfig.getP1MoonSelectorAddr()].c_str(),
                  getShortCharaName(*g_gameConfig.getP1CharacterAddr()),
-                 *CC_P1_WINS_ADDR,
+                 *g_gameConfig.getP1WinsAddr(),
                  (int)now
                );
     }

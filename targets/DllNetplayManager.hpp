@@ -164,7 +164,7 @@ private:
     // Type of the training mode reset
     int32_t _trainingResetType = 0;
 
-    // The value of *CC_MENU_STATE_COUNTER_ADDR at the beginning of the RetryMenu state.
+    // The value of *g_gameConfig.getMenuStateCounterAddr() at the beginning of the RetryMenu state.
     // This is used to determine if any other menus are open in front of the retry menu.
     uint32_t _retryMenuStateCounter = 0;
 

@@ -6,6 +6,13 @@
 #include "ConsoleUi.hpp"
 #include "Version.hpp"
 
+// Game executable name - set at compile time
+#ifdef BUILD_MBAC
+    #define GAME_EXE_NAME "mbacPC.exe"
+#else
+    #define GAME_EXE_NAME MBAA_EXE  // "MBAA.exe"
+#endif
+
 #include <optionparser.h>
 #include <windows.h>
 #include <algorithm>
@@ -115,11 +122,11 @@ static bool initDirsAndSanityCheck ( bool checkGameExe = true )
 
     if ( checkGameExe )
     {
-        val = GetFileAttributes ( ( ProcessManager::gameDir + MBAA_EXE ).c_str() );
+        val = GetFileAttributes ( ( ProcessManager::gameDir + GAME_EXE_NAME ).c_str() );
 
         if ( val == INVALID_FILE_ATTRIBUTES )
         {
-            lastError += "\nCouldn't find " MBAA_EXE "!";
+            lastError += "\nCouldn't find " GAME_EXE_NAME "!";
             success = false;
         }
     }

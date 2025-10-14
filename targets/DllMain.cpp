@@ -595,7 +595,7 @@ struct DllMain
                 && netMan.getLastChangedFrame().value < netMan.getIndexedFrame().value )
         {
             const string before = format ( "%s [%u] %s [%s]",
-                                           gameModeStr ( *CC_GAME_MODE_ADDR ), *CC_GAME_MODE_ADDR,
+                                           gameModeStr ( *g_gameConfig.getGameModeAddr() ), *g_gameConfig.getGameModeAddr(),
                                            netMan.getState(), netMan.getIndexedFrame() );
 
             // Indicate we're re-running to the current frame
@@ -701,7 +701,7 @@ struct DllMain
                 if ( KeyboardState::isDown ( VK_CONTROL ) )
                 {
                     const string before = format ( "%s [%u] %s [%s]",
-                                                   gameModeStr ( *CC_GAME_MODE_ADDR ), *CC_GAME_MODE_ADDR,
+                                                   gameModeStr ( *g_gameConfig.getGameModeAddr() ), *g_gameConfig.getGameModeAddr(),
                                                    netMan.getState(), netMan.getIndexedFrame() );
 
                     // Indicate we're re-running to the current frame
@@ -748,7 +748,7 @@ struct DllMain
                     target.parts.frame -= distance;
 
                 const string before = format ( "%s [%u] %s [%s]",
-                                               gameModeStr ( *CC_GAME_MODE_ADDR ), *CC_GAME_MODE_ADDR,
+                                               gameModeStr ( *g_gameConfig.getGameModeAddr() ), *g_gameConfig.getGameModeAddr(),
                                                netMan.getState(), netMan.getIndexedFrame() );
 
                 // Indicate we're re-running to the current frame
@@ -865,8 +865,8 @@ struct DllMain
 
         // if ( netMan.getIndex() == 1802 && netMan.getFrame() == 460 )
         // {
-        //     if ( *CC_P1_HEALTH_ADDR != 11400 || *CC_P1_METER_ADDR != 0
-        //             || *CC_P2_HEALTH_ADDR != 10121 || *CC_P2_METER_ADDR != 10638 )
+        //     if ( *g_gameConfig.getP1HealthAddr() != 11400 || *g_gameConfig.getP1MeterAddr() != 0
+        //             || *g_gameConfig.getP2HealthAddr() != 10121 || *g_gameConfig.getP2MeterAddr() != 10638 )
         //     {
         //         LOG_SYNC_CHARACTER ( 1 );
         //         LOG_SYNC_CHARACTER ( 2 );
@@ -899,10 +899,10 @@ struct DllMain
         if ( netMan.getState() == NetplayState::CharaSelect )
         {
             LOG_SYNC ( "P1: sel=%u; C=%u; M=%u; c=%u; P2: sel=%u; C=%u; M=%u; c=%u",
-                       *CC_P1_SELECTOR_MODE_ADDR, *CC_P1_CHARACTER_ADDR,
-                       *CC_P1_MOON_SELECTOR_ADDR, *CC_P1_COLOR_SELECTOR_ADDR,
-                       *CC_P2_SELECTOR_MODE_ADDR, *CC_P2_CHARACTER_ADDR,
-                       *CC_P2_MOON_SELECTOR_ADDR, *CC_P2_COLOR_SELECTOR_ADDR );
+                       *g_gameConfig.getP1SelectorModeAddr(), *CC_P1_CHARACTER_ADDR,
+                       *g_gameConfig.getP1MoonSelectorAddr(), *g_gameConfig.getP1ColorSelectorAddr(),
+                       *g_gameConfig.getP2SelectorModeAddr(), *CC_P2_CHARACTER_ADDR,
+                       *g_gameConfig.getP2MoonSelectorAddr(), *g_gameConfig.getP2ColorSelectorAddr() );
             return;
         }
 
@@ -1202,16 +1202,16 @@ struct DllMain
     {
         bool p1_over, p2_over;
         // check whether p1 is main or puppet
-        if ( *CC_P1_PUPPET_STATE_ADDR == 0 ) {
-            p1_over = *CC_P1_NO_INPUT_FLAG_ADDR;
+        if ( *g_gameConfig.getP1PuppetStateAddr() == 0 ) {
+            p1_over = *g_gameConfig.getP1NoInputFlagAddr();
         } else {
             ASSERT ( *g_gameConfig.getP3PuppetStateAddr() == 0 );
             ASSERT ( *g_gameConfig.getP3EnabledFlagAddr() );
             p1_over = *g_gameConfig.getP3NoInputFlagAddr();
         }
         // ditto for p2
-        if ( *CC_P2_PUPPET_STATE_ADDR == 0 ) {
-            p2_over = *CC_P2_NO_INPUT_FLAG_ADDR;
+        if ( *g_gameConfig.getP2PuppetStateAddr() == 0 ) {
+            p2_over = *g_gameConfig.getP2NoInputFlagAddr();
         } else {
             ASSERT ( *g_gameConfig.getP4PuppetStateAddr() == 0 );
             ASSERT ( *g_gameConfig.getP4EnabledFlagAddr() );
@@ -1906,7 +1906,7 @@ struct DllMain
 
                 if ( netMan.autoReplaySave )
                 {
-                    *CC_AUTO_REPLAY_SAVE_ADDR = 1;
+                    *g_gameConfig.getAutoReplaySaveAddr() = 1;
                 }
 
                 LOG ( "SessionId '%s'", netMan.config.sessionId );
@@ -2015,15 +2015,15 @@ struct DllMain
 
         netplayStateChanged ( NetplayState::PreInitial );
 
-        ChangeMonitor::get().addRef ( this, Variable ( Variable::GameMode ), *CC_GAME_MODE_ADDR );
+        ChangeMonitor::get().addRef ( this, Variable ( Variable::GameMode ), *g_gameConfig.getGameModeAddr() );
         ChangeMonitor::get().addRef ( this, Variable ( Variable::RoundStart ), AsmHacks::roundStartCounter );
-        ChangeMonitor::get().addRef ( this, Variable ( Variable::GameState ), *CC_GAME_STATE_ADDR );
+        ChangeMonitor::get().addRef ( this, Variable ( Variable::GameState ), *g_gameConfig.getGameStateAddr() );
         netManPtr = &netMan;
 
 #ifndef RELEASE
         ChangeMonitor::get().addRef ( this, Variable ( Variable::MenuConfirmState ), AsmHacks::menuConfirmState );
         ChangeMonitor::get().addRef ( this, Variable ( Variable::CurrentMenuIndex ), AsmHacks::currentMenuIndex );
-        // ChangeMonitor::get().addRef ( this, Variable ( Variable::GameStateCounter ), *CC_MENU_STATE_COUNTER_ADDR );
+        // ChangeMonitor::get().addRef ( this, Variable ( Variable::GameStateCounter ), *g_gameConfig.getMenuStateCounterAddr() );
         // ChangeMonitor::get().addPtrToRef ( this, Variable ( Variable::AutoReplaySave ),
         //                                    const_cast<const uint32_t *&> ( AsmHacks::autoReplaySaveStatePtr ), 0u );
 #endif // NOT RELEASE
