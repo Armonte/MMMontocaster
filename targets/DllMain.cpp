@@ -2259,6 +2259,19 @@ namespace AsmHacks
 
 extern "C" void callback()
 {
+    // MBAC HOOK VERIFICATION: Log first few callbacks to verify hook is working
+    static int callbackCount = 0;
+    if ( GameConfigInstance::isMBAC() && callbackCount < 10 )
+    {
+        LOG ( "🎉 MBAC callback() #%d - Hook is working!", callbackCount );
+        callbackCount++;
+    }
+    else if ( GameConfigInstance::isMBAC() && callbackCount == 10 )
+    {
+        LOG ( "✅ MBAC callback verified! (further logs suppressed)" );
+        callbackCount++;
+    }
+    
     if ( appState == AppState::Deinitialized )
         return;
 
@@ -2277,6 +2290,14 @@ extern "C" void callback()
             // Start polling now
             EventManager::get().startPolling();
             appState = AppState::Polling;
+        }
+
+        // MBAC: Bypass mainApp for now (not yet implemented)
+        if ( GameConfigInstance::isMBAC() )
+        {
+            // TODO: Create MBAC-specific mainApp or NetplayManager
+            // For now, just keep the game running to verify hook continues firing
+            return;
         }
 
         ASSERT ( mainApp.get() != 0 );

@@ -35,43 +35,84 @@ void initializePreLoad()
     LOG ( "🔧 initializePreLoad() - Applying assembly hacks..." );
     LOG ( "   Game: %s", GameConfigInstance::isMBAC() ? "MBAC" : "MBAA" );
     
-    // Get the correct hookMainLoop for the detected game
-    const AsmList& hooks = g_gameConfig.getHookMainLoop();
-    LOG ( "   Applying %d hookMainLoop patches", (int)hooks.size() );
-    
-    for ( const Asm& hack : hooks )
+    if ( GameConfigInstance::isMBAC() )
     {
-        LOG ( "   Writing patch at 0x%08X (%d bytes)", (uintptr_t)hack.addr, (int)hack.bytes.size() );
-        WRITE_ASM_HACK ( hack );
+        // MBAC: TESTING MAIN LOOP HOOK with verified addresses!
+        LOG ( "   🔧 MBAC MODE: Testing main loop hook with code caves" );
+        
+        // Get the full hookMainLoop (contains 4 patches: intro skip + 3 main loop hooks)
+        const AsmList& hooks = g_gameConfig.getHookMainLoop();
+        LOG ( "   📦 hookMainLoop contains %d patches", (int)hooks.size() );
+        
+        // Apply ALL hookMainLoop patches (intro skip + main loop)
+        for ( size_t i = 0; i < hooks.size(); ++i )
+        {
+            const char* patchName = "UNKNOWN";
+            if ( i == 0 ) patchName = "INTRO_SKIP";
+            else if ( i == 1 ) patchName = "HOOK_CALL1";
+            else if ( i == 2 ) patchName = "HOOK_CALL2";
+            else if ( i == 3 ) patchName = "LOOP_START";
+            
+            LOG ( "   ✅ [%s] Writing patch %d at 0x%08X (%d bytes)",
+                  patchName, (int)i, (uintptr_t)hooks[i].addr, (int)hooks[i].bytes.size() );
+            WRITE_ASM_HACK ( hooks[i] );
+        }
+        
+        // MULTIWINDOW: @ 0x40D23A ❌ DISABLED (wrong address)
+        LOG ( "   ❌ [MULTI_WINDOW] Skipping multi-window patch (address not verified for MBAC)" );
+        
+        // ALL OTHER PATCHES: ❌ DISABLED (addresses not verified for MBAC)
+        LOG ( "   ❌ [DISABLED] hijackControls - not verified for MBAC" );
+        LOG ( "   ❌ [DISABLED] hijackMenu - not verified for MBAC" );
+        LOG ( "   ❌ [DISABLED] detectRoundStart - not verified for MBAC" );
+        LOG ( "   ❌ [DISABLED] filterRepeatedSfx - not verified for MBAC" );
+        LOG ( "   ❌ [DISABLED] muteSpecificSfx - not verified for MBAC" );
+        LOG ( "   ❌ [DISABLED] addExtraTextures - not verified for MBAC" );
+        LOG ( "   ❌ [DISABLED] loadCustomPalettesAsm - not verified for MBAC" );
+        LOG ( "   ❌ [DISABLED] detectAutoReplaySave - not verified for MBAC" );
+        LOG ( "   ❌ [DISABLED] hijackEscapeKey - not verified for MBAC" );
+        LOG ( "   ❌ [DISABLED] disableTrainingMusicReset - not verified for MBAC" );
+        LOG ( "   ❌ [DISABLED] fixBossStageSuperFlashOverlay - not verified for MBAC" );
     }
-    
-    // Apply other hooks using config
-    for ( const Asm& hack : g_gameConfig.getHijackControls() )
-        WRITE_ASM_HACK ( hack );
+    else
+    {
+        // MBAA: Apply all patches normally
+        LOG ( "   Applying %d hookMainLoop patches", (int)g_gameConfig.getHookMainLoop().size() );
+        
+        for ( const Asm& hack : g_gameConfig.getHookMainLoop() )
+        {
+            LOG ( "   Writing patch at 0x%08X (%d bytes)", (uintptr_t)hack.addr, (int)hack.bytes.size() );
+            WRITE_ASM_HACK ( hack );
+        }
+        
+        // Apply other hooks using config
+        for ( const Asm& hack : g_gameConfig.getHijackControls() )
+            WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : g_gameConfig.getHijackMenu() )
-        WRITE_ASM_HACK ( hack );
+        for ( const Asm& hack : g_gameConfig.getHijackMenu() )
+            WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : g_gameConfig.getDetectRoundStart() )
-        WRITE_ASM_HACK ( hack );
+        for ( const Asm& hack : g_gameConfig.getDetectRoundStart() )
+            WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : g_gameConfig.getFilterRepeatedSfx() )
-        WRITE_ASM_HACK ( hack );
+        for ( const Asm& hack : g_gameConfig.getFilterRepeatedSfx() )
+            WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : g_gameConfig.getMuteSpecificSfx() )
-        WRITE_ASM_HACK ( hack );
+        for ( const Asm& hack : g_gameConfig.getMuteSpecificSfx() )
+            WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : g_gameConfig.getAddExtraTextures() )
-        WRITE_ASM_HACK ( hack );
+        for ( const Asm& hack : g_gameConfig.getAddExtraTextures() )
+            WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : g_gameConfig.getLoadCustomPalettesAsm() )
-        WRITE_ASM_HACK ( hack );
+        for ( const Asm& hack : g_gameConfig.getLoadCustomPalettesAsm() )
+            WRITE_ASM_HACK ( hack );
 
-    WRITE_ASM_HACK ( g_gameConfig.getMultiWindow() );
-    WRITE_ASM_HACK ( g_gameConfig.getDetectAutoReplaySave() );
-    WRITE_ASM_HACK ( g_gameConfig.getHijackEscapeKey() );
-    WRITE_ASM_HACK ( g_gameConfig.getDisableTrainingMusicReset() );
-    WRITE_ASM_HACK ( g_gameConfig.getFixBossStageSuperFlashOverlay() );
+        WRITE_ASM_HACK ( g_gameConfig.getMultiWindow() );
+        WRITE_ASM_HACK ( g_gameConfig.getDetectAutoReplaySave() );
+        WRITE_ASM_HACK ( g_gameConfig.getHijackEscapeKey() );
+        WRITE_ASM_HACK ( g_gameConfig.getDisableTrainingMusicReset() );
+        WRITE_ASM_HACK ( g_gameConfig.getFixBossStageSuperFlashOverlay() );
+    }
     
     LOG ( "✅ Assembly hacks applied successfully!" );
 
@@ -188,6 +229,22 @@ void initializePostLoad()
 {
     LOG ( "threadId=%08x", GetCurrentThreadId() );
 
+    if ( GameConfigInstance::isMBAC() )
+    {
+        // MBAC: Skip all post-load patches for now (addresses not verified)
+        LOG ( "🟡 MBAC: Skipping initializePostLoad patches (not yet verified for MBAC)" );
+        
+        // Get the handle to the main window (MBAC has different title)
+        const char* mbacTitle = "Melty Blood Act Cadenza Ver1.00";
+        if ( ! ( windowHandle = ProcessManager::findWindow ( mbacTitle ) ) )
+            LOG ( "Couldn't find window '%s'", mbacTitle );
+        
+        // Skip DirectX hooks, stage patches, FPS patches for MBAC
+        LOG ( "✅ MBAC initializePostLoad completed (minimal mode)" );
+        return;
+    }
+
+    // MBAA: Apply all post-load patches normally
     // Apparently this needs to be applied AFTER the game loads
     for ( const Asm& hack : enableDisabledStages )
         WRITE_ASM_HACK ( hack );
@@ -253,8 +310,21 @@ void deinitialize()
         WindowProc = 0;
     }
 
-    for ( int i = hookMainLoop.size() - 1; i >= 0; --i )
-        hookMainLoop[i].revert();
+    // Only revert patches that were actually applied
+    if ( GameConfigInstance::isMBAC() )
+    {
+        LOG ( "Reverting MBAC patches (all hookMainLoop)..." );
+        // Revert all hookMainLoop patches (intro skip + main loop hooks)
+        for ( int i = g_gameConfig.getHookMainLoop().size() - 1; i >= 0; --i )
+            g_gameConfig.getHookMainLoop()[i].revert();
+        // Note: multiWindow was NOT applied for MBAC, so don't revert it
+    }
+    else
+    {
+        // MBAA: Revert all hookMainLoop patches
+        for ( int i = g_gameConfig.getHookMainLoop().size() - 1; i >= 0; --i )
+            g_gameConfig.getHookMainLoop()[i].revert();
+    }
 }
 
 } // namespace DllHacks

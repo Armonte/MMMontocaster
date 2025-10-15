@@ -6,11 +6,11 @@
 #include "DllAsmHacks.hpp"
 #include "../netplay/Constants.hpp"
 
-// MBAC-specific addresses (from mbcaster analysis)
-#define MBAC_LOOP_START_ADDR      ((char*)0x40D310)  // ✅ GameStart - 32 bytes earlier than MBAA
-#define MBAC_HOOK_CALL1_ADDR      ((char*)0x40D012)  // ✅ Estimated -32 from MBAA
-#define MBAC_HOOK_CALL2_ADDR      ((char*)0x40D3F1)  // ✅ Estimated -32 from MBAA
-#define MBAC_MULTIPLE_MELTY       ((char*)0x40D23A)  // ✅ Estimated -32 from MBAA
+// MBAC-specific addresses (VERIFIED!)
+#define MBAC_LOOP_START_ADDR      ((char*)0x44B940)  // ✅ THE REAL MAIN LOOP! (inside CameraPosCompute)
+#define MBAC_HOOK_CALL1_ADDR      ((char*)0x45F032)  // ✅ Code cave (14 bytes of CC padding)
+#define MBAC_HOOK_CALL2_ADDR      ((char*)0x45EF92)  // ✅ Code cave (14 bytes of CC padding)
+#define MBAC_MULTIPLE_MELTY       ((char*)0x45F82D)  // ✅ VERIFIED! WinMain mutex check (jnz -> jmp)
 
 // MBAC Performance frequency address
 #define MBAC_PERF_FREQ_ADDR       ((uint64_t*)0x774A60)  // Estimated -32 from MBAA
@@ -43,7 +43,30 @@ inline const AsmHacks::Asm skipStartupLogos = {
 };
 
 // ===================================================================
-// MAIN GAME LOOP
+// MAIN GAME LOOP HOOK
+// ===================================================================
+//
+// HOW IT WORKS (3-part trampoline):
+//
+// 1. Game reaches LOOP_START (0x44B940) - THE REAL MAIN LOOP!
+//    Original: call WindowsMessagePump (5 bytes: E8 3B 35 01 00)
+//    Patched:  jmp HOOK_CALL1; nop (6 bytes)
+//    This is inside CameraPosCompute, which is the actual game loop!
+//
+// 2. HOOK_CALL1 (0x45F032) - code cave filled with CC padding
+//    Patched:  call callback(); jmp HOOK_CALL2
+//    → Our C++ code runs here every frame!
+//
+// 3. HOOK_CALL2 (0x45EF92) - code cave filled with CC padding  
+//    Patched:  call WindowsMessagePump; jmp LOOP_START+5
+//    → Executes the call we overwrote, returns to game loop
+//
+// Execution flow (EVERY FRAME):
+//   0x44B940 (LOOP_START) → jmp 0x45F032 (HOOK_CALL1) → 
+//   callback() → jmp 0x45EF92 (HOOK_CALL2) → 
+//   call WindowsMessagePump → jmp 0x44B945 (continue) →
+//   [game logic] → jmp 0x44B940 (LOOP BACK!)
+//
 // ===================================================================
 
 // Main loop hook WITH startup logo skip patch
@@ -51,20 +74,24 @@ inline const AsmHacks::Asm skipStartupLogos = {
 // MBAA can use input mashing because its WorldTimer runs from boot.
 inline const AsmHacks::AsmList hookMainLoop =
 {
-    skipStartupLogos,  // ✅ REQUIRED! Timer doesn't run during intro, so input mashing won't work
+    skipStartupLogos,  // ✅ PATCH 0: Skip intro (REQUIRED! Timer doesn't run during intro)
+    
+    // ✅ PATCH 1: Inject callback at code cave @ 0x45F032 (10 bytes needed, 14 available)
     { MBAC_HOOK_CALL1_ADDR, {
         0xE8, INLINE_DWORD ( ( ( char * ) &AsmHacks::callback ) - MBAC_HOOK_CALL1_ADDR - 5 ),   // call callback
-        0xE9, INLINE_DWORD ( MBAC_HOOK_CALL2_ADDR - MBAC_HOOK_CALL1_ADDR - 10 )                  // jmp MBAC_HOOK_CALL2_ADDR
+        0xE9, INLINE_DWORD ( MBAC_HOOK_CALL2_ADDR - MBAC_HOOK_CALL1_ADDR - 10 )                  // jmp HOOK_CALL2
     } },
+    
+    // ✅ PATCH 2: Restore original call at code cave @ 0x45EF92 (10 bytes needed, 14 available)
     { MBAC_HOOK_CALL2_ADDR, {
-        0x6A, 0x01,                                                                 // push 01
-        0x6A, 0x00,                                                                 // push 00
-        0x6A, 0x00,                                                                 // push 00
-        0xE9, INLINE_DWORD ( MBAC_LOOP_START_ADDR - MBAC_HOOK_CALL2_ADDR - 5 )      // jmp MBAC_LOOP_START_ADDR+6
+        0xE8, 0x3B, 0x35, 0x01, 0x00,                                                // call WindowsMessagePump (original instruction)
+        0xE9, INLINE_DWORD ( MBAC_LOOP_START_ADDR - MBAC_HOOK_CALL2_ADDR - 10 + 5 )  // jmp LOOP_START+5 (after the call)
     } },
+    
+    // ✅ PATCH 3: Redirect loop to our hook @ 0x44B940 (6 bytes: E8 ?? ?? ?? ?? 00 → E9 ?? ?? ?? ?? 90)
     { MBAC_LOOP_START_ADDR, {
-        0xE9, INLINE_DWORD ( MBAC_HOOK_CALL1_ADDR - MBAC_LOOP_START_ADDR - 5 ),     // jmp MBAC_HOOK_CALL1_ADDR
-        0x90                                                                        // nop
+        0xE9, INLINE_DWORD ( MBAC_HOOK_CALL1_ADDR - MBAC_LOOP_START_ADDR - 5 ),     // jmp HOOK_CALL1
+        0x90                                                                         // nop (padding)
     } },
 };
 
