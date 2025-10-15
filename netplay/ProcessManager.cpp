@@ -9,12 +9,18 @@
 #include <windows.h>
 #include <direct.h>
 
-// Game executable name - set at compile time
-#ifdef BUILD_MBAC
-    #define GAME_EXE_NAME "mbacPC.exe"
-#else
-    #define GAME_EXE_NAME MBAA_EXE  // "MBAA.exe"
-#endif
+// Helper to detect which game exe we're launching
+static const char* detectGameExe(const std::string& gameDir) {
+    const char* knownGames[] = {"MBAA.exe", "mbacPC.exe", "MB.exe", "MBREACT.exe"};
+    for (const char* exe : knownGames) {
+        std::string path = gameDir + exe;
+        DWORD attr = GetFileAttributes(path.c_str());
+        if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+            return exe;
+        }
+    }
+    return "MBAA.exe"; // Fallback
+}
 
 #include <algorithm>
 #include <iostream>
@@ -119,9 +125,19 @@ void ProcessManager::timerExpired ( Timer *timer )
 
     LOG ( "Trying to start game (%d)", _gameStartCount );
 
+    // Try to find startup window for any Melty Blood game
+    // MBAA: "MELTY BLOOD Actress Again Current Code Ver.1.07 Rev.1.4.0 "
+    // MBAC: "MELTY BLOOD Act Cadenza Ver.1.03a"  (or similar)
     void *hwnd = 0;
+    
+    // First try the known MBAA title
     if ( ! ( hwnd = findWindow ( CC_STARTUP_TITLE, false ) ) )
-        return;
+    {
+        // If not found, try searching for any window with "MELTY BLOOD" in the title
+        // This will work for MBAC and other versions
+        if ( ! ( hwnd = findWindow ( "MELTY BLOOD", false ) ) )
+            return;
+    }
 
     if ( ! ( hwnd = FindWindowEx ( ( HWND ) hwnd, 0, 0, CC_STARTUP_BUTTON ) ) )
         return;
@@ -164,7 +180,7 @@ void ProcessManager::openGame ( bool highPriority, bool isTraining )
     string path = appDir + LAUNCHER;
     vector<string> stringArgs;
     stringArgs.push_back ( "\"" + path + "\"" );
-    stringArgs.push_back ( "\"" + gameDir + GAME_EXE_NAME + "\"" );
+    stringArgs.push_back ( "\"" + gameDir + detectGameExe(gameDir) + "\"" );
     stringArgs.push_back ( "\"" + appDir + HOOK_DLL + "\"" );
     stringArgs.push_back ( "\"" + appDir + "framestep.dll" + "\"" );
     if ( isTraining )
@@ -377,7 +393,7 @@ string ProcessManager::fetchGameUserName()
 
 array<char, 10> ProcessManager::fetchKeyboardConfig()
 {
-    const string file = gameDir + GAME_EXE_NAME;
+    const string file = gameDir + detectGameExe(gameDir);
 
     LOG ( "Reading: %s", file );
 

@@ -32,35 +32,48 @@ namespace DllHacks
 
 void initializePreLoad()
 {
-    for ( const Asm& hack : hookMainLoop )
+    LOG ( "🔧 initializePreLoad() - Applying assembly hacks..." );
+    LOG ( "   Game: %s", GameConfigInstance::isMBAC() ? "MBAC" : "MBAA" );
+    
+    // Get the correct hookMainLoop for the detected game
+    const AsmList& hooks = g_gameConfig.getHookMainLoop();
+    LOG ( "   Applying %d hookMainLoop patches", (int)hooks.size() );
+    
+    for ( const Asm& hack : hooks )
+    {
+        LOG ( "   Writing patch at 0x%08X (%d bytes)", (uintptr_t)hack.addr, (int)hack.bytes.size() );
+        WRITE_ASM_HACK ( hack );
+    }
+    
+    // Apply other hooks using config
+    for ( const Asm& hack : g_gameConfig.getHijackControls() )
         WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : hijackControls )
+    for ( const Asm& hack : g_gameConfig.getHijackMenu() )
         WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : hijackMenu )
+    for ( const Asm& hack : g_gameConfig.getDetectRoundStart() )
         WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : detectRoundStart )
+    for ( const Asm& hack : g_gameConfig.getFilterRepeatedSfx() )
         WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : filterRepeatedSfx )
+    for ( const Asm& hack : g_gameConfig.getMuteSpecificSfx() )
         WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : muteSpecificSfx )
+    for ( const Asm& hack : g_gameConfig.getAddExtraTextures() )
         WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : addExtraTextures )
+    for ( const Asm& hack : g_gameConfig.getLoadCustomPalettesAsm() )
         WRITE_ASM_HACK ( hack );
 
-    for ( const Asm& hack : loadCustomPalettesAsm )
-        WRITE_ASM_HACK ( hack );
-
-    WRITE_ASM_HACK ( multiWindow );
-    WRITE_ASM_HACK ( detectAutoReplaySave );
-    WRITE_ASM_HACK ( hijackEscapeKey );
-    WRITE_ASM_HACK ( disableTrainingMusicReset );
-    WRITE_ASM_HACK ( fixBossStageSuperFlashOverlay );
+    WRITE_ASM_HACK ( g_gameConfig.getMultiWindow() );
+    WRITE_ASM_HACK ( g_gameConfig.getDetectAutoReplaySave() );
+    WRITE_ASM_HACK ( g_gameConfig.getHijackEscapeKey() );
+    WRITE_ASM_HACK ( g_gameConfig.getDisableTrainingMusicReset() );
+    WRITE_ASM_HACK ( g_gameConfig.getFixBossStageSuperFlashOverlay() );
+    
+    LOG ( "✅ Assembly hacks applied successfully!" );
 
     // TODO color hijack is temporary disabled due to some issues
     //

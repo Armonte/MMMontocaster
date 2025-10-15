@@ -88,8 +88,45 @@ using namespace std;
 
 uint16_t NetplayManager::getPreInitialInput ( uint8_t player )
 {
-    if ( ( *g_gameConfig.getGameModeAddr() ) == CC_GAME_MODE_MAIN )
-        return 0;
+    LOG ( "🎮 getPreInitialInput called! player=%u", player );
+    
+    // MBAC has a separate intro state address at 0x7A319C
+    // 3 = intro movies (logo screens), 2 = main menu/title
+    if ( GameConfigInstance::isMBAC() )
+    {
+        uint32_t introState = *((uint32_t*)0x7A319C);
+        uint32_t gameMode = *g_gameConfig.getGameModeAddr();
+        
+        LOG ( "MBAC: introState @ 0x7A319C = %u, gameMode @ 0x7CA584 = %u", introState, gameMode );
+        
+        // Still in intro movies - mash to skip!
+        if ( introState == 3 )
+        {
+            LOG ( "🔥 INTRO MOVIES DETECTED! Mashing A button to skip..." );
+            AsmHacks::menuConfirmState = 2;
+            RETURN_MASH_INPUT ( 0, CC_BUTTON_CONFIRM );
+        }
+        
+        // Already at title screen or beyond
+        if ( introState == 2 || gameMode == CC_GAME_MODE_MAIN )
+        {
+            LOG ( "📍 Past intro (introState=%u, gameMode=%u), stopping mash", introState, gameMode );
+            return 0;
+        }
+        
+        LOG ( "⚠️ Unknown state, mashing anyway" );
+    }
+    else  // MBAA
+    {
+        uint32_t gameMode = *g_gameConfig.getGameModeAddr();
+        LOG ( "MBAA: gameMode @ 0x54EEE8 = %u", gameMode );
+        
+        if ( gameMode == CC_GAME_MODE_MAIN )
+        {
+            LOG ( "📍 At main menu, stopping mash" );
+            return 0;
+        }
+    }
 
     AsmHacks::menuConfirmState = 2;
     RETURN_MASH_INPUT ( 0, CC_BUTTON_CONFIRM );

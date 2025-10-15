@@ -225,7 +225,26 @@ int Asm::write() const
 {
     backup.resize ( bytes.size() );
     memcpy ( &backup[0], addr, backup.size() );
-    return memwrite ( addr, &bytes[0], bytes.size() );
+    
+    int result = memwrite ( addr, &bytes[0], bytes.size() );
+    
+    if ( result != 0 )
+    {
+        LOG ( "❌ FAILED to write patch at 0x%08X! Error: %d", (uintptr_t)addr, result );
+    }
+    else
+    {
+        LOG ( "✅ Successfully wrote %d bytes to 0x%08X", (int)bytes.size(), (uintptr_t)addr );
+        
+        // Verify the write by reading it back
+        unsigned char verify[16] = {0};
+        memcpy ( verify, addr, bytes.size() > 16 ? 16 : bytes.size() );
+        
+        LOG ( "   Verification: First 6 bytes = %02X %02X %02X %02X %02X %02X", 
+              verify[0], verify[1], verify[2], verify[3], verify[4], verify[5] );
+    }
+    
+    return result;
 }
 
 int Asm::revert() const

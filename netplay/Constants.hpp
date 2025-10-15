@@ -100,8 +100,12 @@
 
 // List of game modes relevant to netplay
 #define CC_GAME_MODE_STARTUP        ( 65535 )
-#define CC_GAME_MODE_OPENING        ( 3 )
+#define CC_GAME_MODE_OPENING        ( 3 )      // MBAA opening/logos
 #define CC_GAME_MODE_TITLE          ( 2 )
+
+// MBAC-specific intro/menu state values (at 0x7A319C)
+#define MBAC_INTRO_STATE_LOGOS      ( 3 )      // Logo screens playing
+#define MBAC_INTRO_STATE_TITLE      ( 2 )      // Title screen / main menu
 #define CC_GAME_MODE_LOADING_DEMO   ( 13 )
 #define CC_GAME_MODE_HIGH_SCORES    ( 11 )
 #define CC_GAME_MODE_MAIN           ( 25 )

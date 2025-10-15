@@ -3,6 +3,13 @@
 #include "GameConfig.hpp"
 #include <vector>
 
+// MBAC-specific startup intro skip addresses (found via Ghidra analysis)
+#define MBAC_INTRO_SCREEN_INDEX_ADDR    ( ( int32_t * ) 0x996E6C )  // Current screen (0=logo0, 1=logo1, 2=warning) - SET TO 3 to skip
+#define MBAC_INTRO_SKIP_FLAG_ADDR       ( ( int32_t * ) 0x996E68 )  // Skip flag - SET TO 1 to skip
+#define MBAC_INTRO_FRAME_TIMER_ADDR     ( ( int32_t * ) 0x996E74 )  // Frame timer
+#define MBAC_INTRO_INIT_FLAG_ADDR       ( ( int32_t * ) 0x996E64 )  // Init flag
+#define MBAC_INTRO_IMAGE_HANDLE_ADDR    ( ( int32_t * ) 0x996E60 )  // Image handle
+
 // Forward declare MBAC-specific assembly hacks namespace
 namespace AsmHacksMBAC {
     // These will be defined in targets/DllAsmHacksMBAC.hpp
@@ -148,7 +155,7 @@ public:
     // ===================================================================
     
     uint32_t* getWorldTimerAddr() const override {
-        return (uint32_t*)0x7CA588;  // ✅ From MBCaster - world timer
+        return (uint32_t*)0x7A31A0;  // ✅ User verified: mbacPC.exe+3A31A0
     }
     
     uint8_t* getPauseFlagAddr() const override {
@@ -185,6 +192,12 @@ public:
     
     uint32_t* getGameModeAddr() const override {
         return (uint32_t*)0x7CA584;  // ✅ From MBCaster - game mode
+    }
+    
+    // MBAC-specific: Intro/menu state address
+    // 0x7A319C: 3 = intro movies (logos), 2 = main menu/title
+    uint32_t* getIntroMenuStateAddr() const {
+        return (uint32_t*)0x7A319C;  // ✅ User verified: 3=intro, 2=title
     }
     
     uint32_t* getGameStateAddr() const override {

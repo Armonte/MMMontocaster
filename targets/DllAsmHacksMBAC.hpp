@@ -18,10 +18,40 @@
 namespace AsmHacksMBAC
 {
 
-// Add a call to the callback function just before the beginning of the game's main message loop.
-// Adapted from MBAACC version with MBAC addresses
+// ===================================================================
+// STARTUP INTRO/LOGO SKIP
+// ===================================================================
+// Addresses from: /mnt/c/dev/mbcaster/INTRO_SKIP_ADDRESSES.md
+//
+// 0x996E6C = g_IntroScreenIndex (0=logo0, 1=logo1, 2=warning, 3=done)
+// 0x996E68 = g_IntroSkipFlag (1=skipped)
+// 0x44CDB0 = DisplayWarningLogoScreen() function
+//
+// Strategy: Patch DisplayWarningLogoScreen to return immediately
+// This skips all 3 startup screens (2 logos + warning = 15 seconds saved!)
+
+// Patch DisplayWarningLogoScreen @ 0x44CDB0 to return 1 immediately
+// Original: push ebp; mov ebp, esp; ...
+// Patched:  mov eax, 1; ret; nop; nop; nop
+inline const AsmHacks::Asm skipStartupLogos = { 
+    ( void * ) 0x44CDB0, 
+    { 
+        0xB8, 0x01, 0x00, 0x00, 0x00,   // mov eax, 1
+        0xC3,                            // ret
+        0x90, 0x90, 0x90                 // nop nop nop (padding)
+    } 
+};
+
+// ===================================================================
+// MAIN GAME LOOP
+// ===================================================================
+
+// Main loop hook WITH startup logo skip patch
+// NOTE: MBAC requires hardware patch because WorldTimer doesn't run during intro!
+// MBAA can use input mashing because its WorldTimer runs from boot.
 inline const AsmHacks::AsmList hookMainLoop =
 {
+    skipStartupLogos,  // ✅ REQUIRED! Timer doesn't run during intro, so input mashing won't work
     { MBAC_HOOK_CALL1_ADDR, {
         0xE8, INLINE_DWORD ( ( ( char * ) &AsmHacks::callback ) - MBAC_HOOK_CALL1_ADDR - 5 ),   // call callback
         0xE9, INLINE_DWORD ( MBAC_HOOK_CALL2_ADDR - MBAC_HOOK_CALL1_ADDR - 10 )                  // jmp MBAC_HOOK_CALL2_ADDR

@@ -957,6 +957,10 @@ struct DllMain
 
     void frameStep()
     {
+        static int frameCount = 0;
+        if ( frameCount++ < 100 )  // Log first 100 frames only
+            LOG ( "📍 frameStep() called! frame=%d, netState=%s", frameCount, netMan.getState().str() );
+        
         // New frame
         netMan.updateFrame();
         procMan.clearInputs();
@@ -986,8 +990,15 @@ struct DllMain
         frameStepSpectators();
 
         // Write game inputs
-        procMan.writeGameInput ( localPlayer, netMan.getInput ( localPlayer ) );
-        procMan.writeGameInput ( remotePlayer, netMan.getInput ( remotePlayer ) );
+        uint16_t input1 = netMan.getInput ( localPlayer );
+        uint16_t input2 = netMan.getInput ( remotePlayer );
+        
+        static int inputLogCount = 0;
+        if ( inputLogCount++ < 50 && ( input1 != 0 || input2 != 0 ) )
+            LOG ( "🎮 Writing inputs: P1=0x%04X, P2=0x%04X", input1, input2 );
+        
+        procMan.writeGameInput ( localPlayer, input1 );
+        procMan.writeGameInput ( remotePlayer, input2 );
 
 #ifndef RELEASE
         if ( replayInputs && ( replaySpeed == 1 || KeyboardState::isDown ( VK_SPACE ) ) )
@@ -1248,6 +1259,10 @@ struct DllMain
     // ChangeMonitor callback
     void changedValue ( Variable var, uint32_t previous, uint32_t current ) override
     {
+        static int changeCount = 0;
+        if ( changeCount++ < 20 )
+            LOG ( "⏱️ changedValue! var=%s, prev=%u, curr=%u", var.str(), previous, current );
+        
         switch ( var.value )
         {
             case Variable::WorldTime:
@@ -2106,8 +2121,32 @@ extern "C" BOOL APIENTRY DllMain ( HMODULE, DWORD reason, LPVOID )
             ProcessManager::gameDir.clear();
 
             char buffer[4096];
-            if ( GetModuleFileName ( GetModuleHandle ( 0 ), buffer, sizeof ( buffer ) ) )
+            string exeName = "";
+            
+            // Get the FULL path to the HOST EXE (not the DLL!)
+            // GetModuleHandle(NULL) = the exe that loaded us
+            DWORD len = GetModuleFileName ( NULL, buffer, sizeof ( buffer ) );
+            
+            if ( len > 0 )
+            {
+                // DON'T use normalizeWindowsPath yet - it strips the filename!
+                // First extract the exe name from the raw path
+                string rawPath = buffer;
+                
+                // Find the last slash
+                size_t lastSlash = rawPath.find_last_of ( "/\\" );
+                if ( lastSlash != string::npos && lastSlash < rawPath.length() - 1 )
+                {
+                    exeName = rawPath.substr ( lastSlash + 1 );  // Extract filename FIRST
+                }
+                else
+                {
+                    exeName = rawPath;  // No slash, use whole thing
+                }
+                
+                // NOW normalize to get just the directory
                 ProcessManager::gameDir = normalizeWindowsPath ( buffer );
+            }
 
             srand ( time ( 0 ) );
 
@@ -2115,7 +2154,38 @@ extern "C" BOOL APIENTRY DllMain ( HMODULE, DWORD reason, LPVOID )
             Logger::get().logVersion();
 
             LOG ( "DLL_PROCESS_ATTACH" );
-            LOG ( "gameDir='%s'", ProcessManager::gameDir );
+            LOG ( "GetModuleFileName returned: '%s' (len=%u)", buffer, len );
+            LOG ( "Normalized fullPath: '%s'", normalizeWindowsPath ( buffer ).c_str() );
+            LOG ( "gameDir='%s'", ProcessManager::gameDir.c_str() );
+            LOG ( "exeName='%s' (length=%u)", exeName.c_str(), ( unsigned ) exeName.length() );
+            
+            // **AUTO-DETECT WHICH GAME WE'RE INJECTED INTO**
+            // Convert to lowercase for comparison
+            string exeNameLower = exeName;
+            std::transform ( exeNameLower.begin(), exeNameLower.end(), exeNameLower.begin(), ::tolower );
+            
+            // Detect and configure for the correct game
+            MeltyGame detectedGame = MeltyGame::Unknown;
+            if ( exeNameLower == "mbaa.exe" )
+                detectedGame = MeltyGame::MBAA_CurrentCode;
+            else if ( exeNameLower == "mbacpc.exe" )
+                detectedGame = MeltyGame::MBAC_ActCadenza;
+            else if ( exeNameLower == "mb.exe" )
+                detectedGame = MeltyGame::MB_Original;
+            else if ( exeNameLower == "mbreact.exe" )
+                detectedGame = MeltyGame::MBRA_ReACT;
+            
+            if ( detectedGame != MeltyGame::Unknown )
+            {
+                GameConfigInstance::setGame ( detectedGame );
+                LOG ( "✅ Auto-detected game: %s", GameConfigInstance::getDisplayName ( detectedGame ) );
+            }
+            else
+            {
+                // Unknown game - default to MBAACC
+                LOG ( "WARNING: Unknown exe '%s', defaulting to MBAA", exeNameLower.c_str() );
+                GameConfigInstance::setGame ( MeltyGame::MBAA_CurrentCode );
+            }
 
             // We want the DLL to be able to rebind any previously bound ports
             Socket::forceReusePort ( true );

@@ -6,13 +6,6 @@
 #include "ConsoleUi.hpp"
 #include "Version.hpp"
 
-// Game executable name - set at compile time
-#ifdef BUILD_MBAC
-    #define GAME_EXE_NAME "mbacPC.exe"
-#else
-    #define GAME_EXE_NAME MBAA_EXE  // "MBAA.exe"
-#endif
-
 #include <optionparser.h>
 #include <windows.h>
 #include <algorithm>
@@ -122,11 +115,34 @@ static bool initDirsAndSanityCheck ( bool checkGameExe = true )
 
     if ( checkGameExe )
     {
-        val = GetFileAttributes ( ( ProcessManager::gameDir + GAME_EXE_NAME ).c_str() );
-
-        if ( val == INVALID_FILE_ATTRIBUTES )
-        {
-            lastError += "\nCouldn't find " GAME_EXE_NAME "!";
+        // Simple game exe validation - just check that the specified exe exists
+        // The hook.dll will auto-detect which game it's injected into at runtime
+        
+        // For now, we still check for specific game exes to validate the path
+        // TODO: This will be replaced with game path configuration + selection menu
+        
+        const char* knownGames[] = {"MBAA.exe", "mbacPC.exe", "MB.exe", "MBREACT.exe"};
+        const int knownGameCount = sizeof(knownGames) / sizeof(knownGames[0]);
+        
+        bool foundGame = false;
+        for (int i = 0; i < knownGameCount; ++i) {
+            string exePath = ProcessManager::gameDir + knownGames[i];
+            DWORD fileAttr = GetFileAttributes(exePath.c_str());
+            if (fileAttr != INVALID_FILE_ATTRIBUTES && !(fileAttr & FILE_ATTRIBUTE_DIRECTORY)) {
+                foundGame = true;
+                LOG("Found Melty Blood game: %s", knownGames[i]);
+                break;
+            }
+        }
+        
+        if (!foundGame) {
+            lastError += "\n\nNo supported Melty Blood game found!";
+            lastError += "\n\nCCCaster supports:";
+            lastError += "\n  - Melty Blood Actress Again Current Code (MBAA.exe)";
+            lastError += "\n  - Melty Blood Act Cadenza (mbacPC.exe)";
+            lastError += "\n  - Melty Blood (MB.exe)";
+            lastError += "\n  - Melty Blood ReACT (MBREACT.exe)";
+            lastError += "\n\nComing soon: Multi-game launcher with game selection!";
             success = false;
         }
     }
