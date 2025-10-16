@@ -1724,18 +1724,18 @@ struct DllMain
                 for ( const AsmHacks::Asm& hack : AsmHacks::addExtraDraws )
                     WRITE_ASM_HACK ( hack );
                 if ( clientMode.isTraining() ) {
-                    WRITE_ASM_HACK ( AsmHacks::forceGotoTraining );
+                    WRITE_ASM_HACK ( g_gameConfig.getForceGotoTraining() );
                     if ( clientMode.isTrial() ) {
                         for ( const AsmHacks::Asm& hack : AsmHacks::disableHealthBars )
                             WRITE_ASM_HACK ( hack );
                         isTrial = true;
                     }
                 } else if ( clientMode.isVersusCPU() )
-                    WRITE_ASM_HACK ( AsmHacks::forceGotoVersusCPU );
+                    WRITE_ASM_HACK ( g_gameConfig.getForceGotoVersusCPU() );
                 else if ( clientMode.isReplay() )
-                    WRITE_ASM_HACK ( AsmHacks::forceGotoReplay );
+                    WRITE_ASM_HACK ( g_gameConfig.getForceGotoReplay() );
                 else
-                    WRITE_ASM_HACK ( AsmHacks::forceGotoVersus );
+                    WRITE_ASM_HACK ( g_gameConfig.getForceGotoVersus() );
 
                 isSinglePlayer = clientMode.isSinglePlayer();
 

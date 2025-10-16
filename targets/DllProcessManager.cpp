@@ -48,9 +48,11 @@ void ProcessManager::writeGameInput ( uint8_t player, uint16_t direction, uint16
         
         static int logCount = 0;
         if ( logCount++ < 30 && (direction != 0 || buttons != 0) )
-            LOG ( "MBAC writeInput: P%d @ 0x%08X: dir=%d btns=0x%04X → [%02X %02X %02X %02X %02X %02X]", 
+            LOG ( "MBAC writeInput: P%d @ 0x%08X: dir=%d btns=0x%04X → [%02X][%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X]", 
                   player, (unsigned)baseAddr,
-                  baseAddr[0], buttons, baseAddr[1], baseAddr[2], baseAddr[3], baseAddr[4], baseAddr[5], baseAddr[6] );
+                  baseAddr[0], buttons, 
+                  baseAddr[1], baseAddr[2], baseAddr[3], baseAddr[4], baseAddr[5], 
+                  baseAddr[6], baseAddr[7], baseAddr[8], baseAddr[9], baseAddr[10] );
         
         return;
     }

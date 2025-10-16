@@ -149,11 +149,22 @@ inline const AsmHacks::Asm detectAutoReplaySave = AsmHacks::detectAutoReplaySave
 // Allow multiple instances
 inline const AsmHacks::Asm multiWindow = { ( void * ) MBAC_MULTIPLE_MELTY, { 0xEB } };
 
-// Force goto modes - same offsets as MBAA (to be verified)
-inline const AsmHacks::Asm forceGotoVersus    = { ( void * ) 0x42B455, { 0xEB, 0x3F } };  // -32 from MBAA
-inline const AsmHacks::Asm forceGotoVersusCPU = { ( void * ) 0x42B455, { 0xEB, 0x5C } };  // -32 from MBAA
-inline const AsmHacks::Asm forceGotoTraining  = { ( void * ) 0x42B455, { 0xEB, 0x22 } };  // -32 from MBAA
-inline const AsmHacks::Asm forceGotoReplay    = { ( void * ) 0x42B455, { 0xE9, 0xC7, 0x00, 0x00, 0x00 } };  // -32 from MBAA
+// Force goto modes - CORRECTED for MBAC!
+// Patch at HandleMenuSelection switch statement (0x45C204)
+// Original: mov eax, [ebp+8]  ; 8B 45 08
+// Patched:  mov eax, 3        ; B8 03 00 00 00
+//           nop               ; 90 90 ... (pad rest of instructions)
+inline const AsmHacks::Asm forceGotoTraining  = { ( void * ) 0x45C204, { 
+    0xB8, 0x03, 0x00, 0x00, 0x00,  // MOV EAX, 3 (menu index for PRACTICE MODE)
+    0x90, 0x90,                     // NOP NOP (overwrite CMP instruction)
+    0x90, 0x90, 0x90, 0x90,        // NOP NOP NOP NOP (overwrite JA instruction and padding)
+    0x90, 0x90                      // NOP NOP (extra padding)
+} };
+
+// TODO: Other modes not yet mapped for MBAC
+inline const AsmHacks::Asm forceGotoVersus    = { ( void * ) 0x45C204, { 0xB8, 0x01, 0x00, 0x00, 0x00, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 } };  // MOV EAX, 1
+inline const AsmHacks::Asm forceGotoVersusCPU = { ( void * ) 0x45C204, { 0xB8, 0x02, 0x00, 0x00, 0x00, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 } };  // MOV EAX, 2
+inline const AsmHacks::Asm forceGotoReplay    = { ( void * ) 0x45C204, { 0xB8, 0x09, 0x00, 0x00, 0x00, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 } };  // MOV EAX, 9
 
 // Hijack escape key - same as MBAA for now (to be verified)
 inline const AsmHacks::Asm hijackEscapeKey = AsmHacks::hijackEscapeKey;

@@ -135,17 +135,62 @@ uint16_t NetplayManager::getPreInitialInput ( uint8_t player )
 
 uint16_t NetplayManager::getInitialInput ( uint8_t player )
 {
-    // MBAC: Use introState instead of gameMode (different values!)
+    // MBAC: Watch for MenuExitCode=-1 (right after intro skip!)
     if ( GameConfigInstance::isMBAC() )
     {
         uint32_t introState = *((uint32_t*)0x7A319C);
+        int32_t* g_MenuExitCode = (int32_t*)0x99DB54;
+        uint32_t* g_MenuStateFlag = (uint32_t*)0x99DC9C;
         
         // Still in intro movies - keep mashing
         if ( introState != 2 )
             return getPreInitialInput ( player );
         
-        // At main menu (introState=2) - start navigating
-        LOG ( "📍 [INITIAL] At MBAC main menu, navigating to mode..." );
+        // Only host player should set the scene
+        if ( player != config.hostPlayer )
+            return 0;
+        
+        // Wait until we know what game mode to go to
+        if ( config.mode.isUnknown() )
+            return 0;
+        
+        // CRITICAL: Set values AS SOON AS MenuExitCode becomes -1!
+        static bool sceneSet = false;
+        if ( !sceneSet && *g_MenuExitCode == -1 )
+        {
+            uint32_t* g_BattleScene = (uint32_t*)0x992180;
+            
+            LOG ( "🎯 [MBAC] MenuExitCode=-1 detected! Hijacking NOW!" );
+            
+            // Set battle scene
+            if ( config.mode.isTraining() ) {
+                LOG ( "🚀 [MBAC] FORCING PRACTICE MODE! Scene=0x1010" );
+                *g_BattleScene = 0x1010;  // PRACTICE MODE
+            } else if ( config.mode.isVersusCPU() ) {
+                LOG ( "🚀 [MBAC] FORCING VS CPU! Scene=0x11" );
+                *g_BattleScene = 0x11;  // VS CPU
+            } else if ( config.mode.isReplay() ) {
+                LOG ( "🚀 [MBAC] FORCING REPLAY MODE! Scene=0x1010" );
+                *g_BattleScene = 0x1010;  // REPLAY MODE
+            } else {
+                LOG ( "🚀 [MBAC] FORCING ARCADE MODE! Scene=0x10" );
+                *g_BattleScene = 0x10;  // ARCADE MODE
+            }
+            
+            // Trigger state machine IMMEDIATELY!
+            *g_MenuExitCode = 255;       // Change -1 to 255
+            *g_MenuStateFlag = 0xFFFF;   // Trigger transition
+            
+            LOG ( "   ✅ HIJACKED! BattleScene=0x%X, ExitCode=255, StateFlag=0xFFFF", *g_BattleScene );
+            sceneSet = true;
+        }
+        
+        // Log current state for debugging
+        if ( !sceneSet )
+            LOG ( "📍 [INITIAL] Waiting... ExitCode=%d, StateFlag=0x%X", *g_MenuExitCode, *g_MenuStateFlag );
+        
+        // Return no input - the scene will change automatically
+        return 0;
     }
     else
     {
