@@ -40,15 +40,20 @@ void initImGui( IDirect3DDevice9 *device );
 
 void InitializeDirectX ( IDirect3DDevice9 *device )
 {
+    LOG ( "🎨 InitializeDirectX called! shouldInit=%d, device=%p", shouldInitDirectX, device );
+    
     if ( ! shouldInitDirectX )
         return;
 
     initalizedDirectX = true;
+    LOG ( "✅ Initializing DirectX overlay (ImGui + text)..." );
 
     initOverlayText ( device );
 #ifdef LOGGING
     initImGui ( device );
 #endif
+    
+    LOG ( "✅ DirectX overlay initialized!" );
 }
 
 void InvalidateDeviceObjects()
@@ -64,15 +69,23 @@ void InvalidateDeviceObjects()
 // Note: this is called on the SAME thread as the main application thread
 void PresentFrameBegin ( IDirect3DDevice9 *device )
 {
+    static int callCount = 0;
+    if ( callCount++ < 10 )
+        LOG ( "🎨 PresentFrameBegin called! count=%d, device=%p", callCount, device );
+    
     if ( ! initalizedDirectX )
         InitializeDirectX ( device );
 
     D3DVIEWPORT9 viewport;
     device->GetViewport ( &viewport );
+    
+    if ( callCount <= 10 )
+        LOG ( "   Viewport: Width=%u, Height=%u", viewport.Width, viewport.Height );
 
     // Only draw in the main viewport; there should only be one with this width
-    if ( viewport.Width != * g_gameConfig.getScreenWidthAddr() )
-        return;
+    // MBAC FIX: Temporarily disabled viewport check - screen width address needs verification
+    // if ( viewport.Width != * g_gameConfig.getScreenWidthAddr() )
+    //     return;
 
     renderOverlayText ( device, viewport );
 #ifdef LOGGING

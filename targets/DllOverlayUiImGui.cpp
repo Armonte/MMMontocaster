@@ -21,7 +21,15 @@ extern bool initalizedDirectX;
 void initImGui( IDirect3DDevice9 *device ) {
     IMGUI_CHECKVERSION();
     context = ImGui::CreateContext();
-    void* windowHandle = ProcessManager::findWindow ( CC_TITLE );
+    
+    // MBAC has a different window title than MBAA!
+    // Use partial match (false) for MBAC since version string varies
+    void* windowHandle;
+    if ( GameConfigInstance::isMBAC() ) {
+        windowHandle = ProcessManager::findWindow ( "MELTY BLOOD Act Cadenza", false );
+    } else {
+        windowHandle = ProcessManager::findWindow ( CC_TITLE );
+    }
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.WantCaptureMouse = true;
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls

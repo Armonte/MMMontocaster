@@ -968,6 +968,19 @@ struct DllMain
         // Check for changes to important variables for state transitions
         ChangeMonitor::get().check();
 
+        // MBAC: Manually transition to CharaSelect state when detected
+        if ( GameConfigInstance::isMBAC() && netMan.getState() == NetplayState::Initial )
+        {
+            uint32_t introState = *((uint32_t*)0x7A319C);
+            static bool transitioned = false;
+            if ( !transitioned && introState == 0 )
+            {
+                LOG ( "🎨 [MBAC] Detected character select! Transitioning to CharaSelect state..." );
+                netplayStateChanged ( NetplayState::CharaSelect );
+                transitioned = true;
+            }
+        }
+
         // Check for controller changes normally on Wine
         if ( ProcessManager::isWine() )
             ControllerManager::get().check();

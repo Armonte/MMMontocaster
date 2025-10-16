@@ -88,34 +88,49 @@ using namespace std;
 
 uint16_t NetplayManager::getPreInitialInput ( uint8_t player )
 {
-    LOG ( "🎮 getPreInitialInput called! player=%u", player );
+    static uint32_t lastLoggedState = 999;
+    uint32_t currentState = GameConfigInstance::isMBAC() ? *((uint32_t*)0x7A319C) : 999;
+    
+    // Only log when state changes to reduce spam
+    if ( currentState != lastLoggedState ) {
+        LOG ( "🎮 getPreInitialInput: player=%u, introState=%u", player, currentState );
+        lastLoggedState = currentState;
+    }
     
     // MBAC has a separate intro state address at 0x7A319C
-    // 3 = intro movies (logo screens), 2 = main menu/title
+    // 3 = intro movies (logo screens), 2 = main menu/title, 0 = character select
     if ( GameConfigInstance::isMBAC() )
     {
         uint32_t introState = *((uint32_t*)0x7A319C);
         uint32_t gameMode = *g_gameConfig.getGameModeAddr();
         
-        LOG ( "MBAC: introState @ 0x7A319C = %u, gameMode @ 0x7CA584 = %u", introState, gameMode );
-        
         // Still in intro movies - mash to skip!
         if ( introState == 3 )
         {
-            LOG ( "🔥 INTRO MOVIES DETECTED! Mashing A button to skip..." );
             AsmHacks::menuConfirmState = 2;
             // MBAC: Use A button (0x0010) instead of CONFIRM (0x0400) for better compatibility
             RETURN_MASH_INPUT ( 0, CC_BUTTON_A );
         }
         
-        // Already at title screen or beyond
-        if ( introState == 2 || gameMode == CC_GAME_MODE_MAIN )
+        // At character select (introState=0) - let DllMain detect game mode change
+        if ( introState == 0 )
         {
-            LOG ( "📍 Past intro (introState=%u, gameMode=%u), stopping mash", introState, gameMode );
-            return 0;
+            static bool logged = false;
+            if ( !logged )
+            {
+                LOG ( "🎯 [MBAC] Character select detected! Passing through raw input..." );
+                logged = true;
+            }
+            
+            // Let players control the character select with their controllers!
+            return getRawInput ( player );
         }
         
-        LOG ( "⚠️ Unknown state, mashing anyway" );
+        // At title or main menu - stop mashing
+        if ( introState == 2 || gameMode == CC_GAME_MODE_MAIN )
+        {
+            return 0;
+        }
     }
     else  // MBAA
     {

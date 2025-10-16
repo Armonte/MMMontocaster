@@ -230,6 +230,9 @@ EXTERN_C HRESULT __declspec ( dllexport ) __stdcall DX9_Present (
 
 string InitDirectX ( void *hwnd )
 {
+    // LOG added for debugging DirectDraw wrapper compatibility
+    OutputDebugStringA("[CCCASTER] InitDirectX: Starting D3D9 initialization...\n");
+    
     // get the offset from the start of the DLL to the interface element we want.
     // step 1: Load d3d9.dll
     HRESULT hRes = g_DX9.LoadDll ( TEXT ( "d3d9" ) );
@@ -238,6 +241,8 @@ string InitDirectX ( void *hwnd )
         _com_error err ( hRes );
         return "Failed to load d3d9.dll: [" + toHexString ( hRes ) + "] " + err.ErrorMessage();
     }
+    
+    OutputDebugStringA("[CCCASTER] InitDirectX: d3d9.dll loaded\n");
 
     // step 2: Get IDirect3D9
     DIRECT3DCREATE9 pDirect3DCreate9 = ( DIRECT3DCREATE9 ) g_DX9.GetProcAddress ( "Direct3DCreate9" );
@@ -245,12 +250,16 @@ string InitDirectX ( void *hwnd )
     {
         return "Unable to find Direct3DCreate9";
     }
+    
+    OutputDebugStringA("[CCCASTER] InitDirectX: Found Direct3DCreate9\n");
 
     IRefPtr<IDirect3D9> pD3D = pDirect3DCreate9 ( D3D_SDK_VERSION );
     if ( !pD3D.IsValidRefObj() )
     {
         return "Direct3DCreate9 failed";
     }
+    
+    OutputDebugStringA("[CCCASTER] InitDirectX: Created IDirect3D9\n");
 
     // step 3: Get IDirect3DDevice9
     D3DDISPLAYMODE d3ddm;
