@@ -104,7 +104,8 @@ uint16_t NetplayManager::getPreInitialInput ( uint8_t player )
         {
             LOG ( "🔥 INTRO MOVIES DETECTED! Mashing A button to skip..." );
             AsmHacks::menuConfirmState = 2;
-            RETURN_MASH_INPUT ( 0, CC_BUTTON_CONFIRM );
+            // MBAC: Use A button (0x0010) instead of CONFIRM (0x0400) for better compatibility
+            RETURN_MASH_INPUT ( 0, CC_BUTTON_A );
         }
         
         // Already at title screen or beyond
@@ -134,8 +135,24 @@ uint16_t NetplayManager::getPreInitialInput ( uint8_t player )
 
 uint16_t NetplayManager::getInitialInput ( uint8_t player )
 {
-    if ( ( *g_gameConfig.getGameModeAddr() ) != CC_GAME_MODE_MAIN )
-        return getPreInitialInput ( player );
+    // MBAC: Use introState instead of gameMode (different values!)
+    if ( GameConfigInstance::isMBAC() )
+    {
+        uint32_t introState = *((uint32_t*)0x7A319C);
+        
+        // Still in intro movies - keep mashing
+        if ( introState != 2 )
+            return getPreInitialInput ( player );
+        
+        // At main menu (introState=2) - start navigating
+        LOG ( "📍 [INITIAL] At MBAC main menu, navigating to mode..." );
+    }
+    else
+    {
+        // MBAA: Use gameMode
+        if ( ( *g_gameConfig.getGameModeAddr() ) != CC_GAME_MODE_MAIN )
+            return getPreInitialInput ( player );
+    }
 
     // The host player should select the main menu, so that the host controls training mode
     if ( player != config.hostPlayer )
@@ -145,6 +162,7 @@ uint16_t NetplayManager::getInitialInput ( uint8_t player )
     if ( config.mode.isUnknown() )
         return 0;
 
+    LOG ( "🎯 [INITIAL] Mashing to enter mode (isTraining=%d)...", config.mode.isTraining() );
     AsmHacks::menuConfirmState = 2;
     RETURN_MASH_INPUT ( 0, CC_BUTTON_CONFIRM );
 }

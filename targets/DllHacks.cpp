@@ -60,11 +60,21 @@ void initializePreLoad()
         
         LOG ( "   🎯 Hook strategy VERIFIED via CE: call wrapper{callback+WindowsMessagePump}; ret" );
         
-        // MULTIWINDOW: @ 0x40D23A ❌ DISABLED (wrong address)
-        LOG ( "   ❌ [MULTI_WINDOW] Skipping multi-window patch (address not verified for MBAC)" );
+        // MULTIWINDOW: ✅ ENABLED (MBAC address verified!)
+        LOG ( "   ✅ [MULTI_WINDOW] Applying MBAC multi-window patch @ 0x45F82D" );
+        WRITE_ASM_HACK ( g_gameConfig.getMultiWindow() );
+        
+        // INPUT HIJACK: ✅ ENABLED (MBAC addresses verified via IDA!)
+        LOG ( "   🎮 [HIJACK_CONTROLS] Applying MBAC input hijack (NOPing ProcessPlayerInput @ 0x44B9C0)" );
+        const AsmList& inputHooks = g_gameConfig.getHijackControls();
+        for ( size_t i = 0; i < inputHooks.size(); ++i )
+        {
+            LOG ( "   ✅ [INPUT_HOOK] Writing input patch %d at 0x%08X (%d bytes)",
+                  (int)i, (uintptr_t)inputHooks[i].addr, (int)inputHooks[i].bytes.size() );
+            WRITE_ASM_HACK ( inputHooks[i] );
+        }
         
         // ALL OTHER PATCHES: ❌ DISABLED (addresses not verified for MBAC)
-        LOG ( "   ❌ [DISABLED] hijackControls - not verified for MBAC" );
         LOG ( "   ❌ [DISABLED] hijackMenu - not verified for MBAC" );
         LOG ( "   ❌ [DISABLED] detectRoundStart - not verified for MBAC" );
         LOG ( "   ❌ [DISABLED] filterRepeatedSfx - not verified for MBAC" );
@@ -233,16 +243,73 @@ void initializePostLoad()
 
     if ( GameConfigInstance::isMBAC() )
     {
-        // MBAC: Skip all post-load patches for now (addresses not verified)
-        LOG ( "🟡 MBAC: Skipping initializePostLoad patches (not yet verified for MBAC)" );
+        // MBAC: Apply essential post-load patches
+        LOG ( "🟡 MBAC: Applying essential post-load patches" );
+        
+        // Skip stage patches - need MBAC-specific addresses
+        LOG ( "❌ [ENABLE_STAGES] Skipping stage patches (MBAC addresses not verified)" );
         
         // Get the handle to the main window (MBAC has different title)
-        const char* mbacTitle = "Melty Blood Act Cadenza Ver1.00";
-        if ( ! ( windowHandle = ProcessManager::findWindow ( mbacTitle ) ) )
-            LOG ( "Couldn't find window '%s'", mbacTitle );
+        // Try progressively less specific window titles
+        const char* mbacTitle = "MELTY BLOOD Act Cadenza";  // Generic prefix for any version
+        if ( ! ( windowHandle = ProcessManager::findWindow ( mbacTitle, false ) ) )
+        {
+            LOG ( "⚠️ Couldn't find MBAC window with partial match for '%s'", mbacTitle );
+            LOG ( "⚠️ DirectX hooks will fail without valid window handle" );
+        }
+        else
+        {
+            LOG ( "✅ Found MBAC window" );
+        }
         
-        // Skip DirectX hooks, stage patches, FPS patches for MBAC
-        LOG ( "✅ MBAC initializePostLoad completed (minimal mode)" );
+        // Device notifications for controller detection
+        DEV_BROADCAST_DEVICEINTERFACE dbh;
+        memset ( &dbh, 0, sizeof ( dbh ) );
+        dbh.dbcc_size = sizeof ( dbh );
+        dbh.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+        dbh.dbcc_classguid = GUID_DEVINTERFACE_HID;
+
+        if ( ! ( notifyHandle = RegisterDeviceNotification ( windowHandle, &dbh, DEVICE_NOTIFY_WINDOW_HANDLE ) ) )
+            LOG ( "RegisterDeviceNotification failed: %s", WinException::getLastError() );
+
+        // Hook the game's WindowProc
+        MH_STATUS status = MH_Initialize();
+        if ( status != MH_OK )
+            LOG ( "Initialize failed: %s", MH_StatusString ( status ) );
+
+        status = MH_CREATE_HOOK ( WindowProc );
+        if ( status != MH_OK )
+            LOG ( "Create hook failed: %s", MH_StatusString ( status ) );
+
+        status = MH_EnableHook ( ( void * ) WindowProc );
+        if ( status != MH_OK )
+            LOG ( "Enable hook failed: %s", MH_StatusString ( status ) );
+
+        // Hook DirectX for MBAC (no game-specific addresses needed!)
+        // BUT: Skip DllFrameRate::enable() for now - it accesses bad addresses
+        bool loadFramestep = ( GetAsyncKeyState ( VK_F8 ) & 0x8000 ) == 0x8000;
+        if ( !ProcessManager::isWine() && !loadFramestep && windowHandle )
+        {
+            LOG ( "🔧 [DIRECTX] Hooking DirectX for MBAC..." );
+            string err;
+            if ( ! ( err = InitDirectX ( windowHandle ) ).empty() )
+                LOG ( "❌ [DIRECTX] InitDirectX failed: %s", err.c_str() );
+            else if ( ! ( err = HookDirectX() ).empty() )
+                LOG ( "❌ [DIRECTX] HookDirectX failed: %s", err.c_str() );
+            else
+                LOG ( "✅ [DIRECTX] DirectX hooks installed successfully!" );
+            
+            // Enable frame rate control for MBAC
+            // We've disabled MBAC's limiter and will use DirectX-based timing
+            DllFrameRate::enable();
+            LOG ( "✅ [FRAMERATE] Enabled DllFrameRate (MBAC's limiter disabled)" );
+        }
+        else if ( !windowHandle )
+        {
+            LOG ( "⚠️ [DIRECTX] Skipping DirectX hooks - no window handle" );
+        }
+        
+        LOG ( "✅ MBAC initializePostLoad completed" );
         return;
     }
 
@@ -315,11 +382,15 @@ void deinitialize()
     // Only revert patches that were actually applied
     if ( GameConfigInstance::isMBAC() )
     {
-        LOG ( "Reverting MBAC patches (all hookMainLoop)..." );
+        LOG ( "Reverting MBAC patches (hookMainLoop + hijackControls + multiWindow)..." );
         // Revert all hookMainLoop patches (intro skip + main loop hooks)
         for ( int i = g_gameConfig.getHookMainLoop().size() - 1; i >= 0; --i )
             g_gameConfig.getHookMainLoop()[i].revert();
-        // Note: multiWindow was NOT applied for MBAC, so don't revert it
+        // Revert input hijack patches
+        for ( int i = g_gameConfig.getHijackControls().size() - 1; i >= 0; --i )
+            g_gameConfig.getHijackControls()[i].revert();
+        // Revert multi-window patch
+        g_gameConfig.getMultiWindow().revert();
     }
     else
     {

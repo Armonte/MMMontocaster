@@ -85,7 +85,7 @@ void PresentFrameEnd ( IDirect3DDevice9 *device )
 
         actualFps = 1000.0 / ( ( now - last60f ) / 60.0 );
 
-        *CC_FPS_COUNTER_ADDR = uint32_t ( actualFps + 0.5 );
+        *g_gameConfig.getFpsCounterAddr() = uint32_t ( actualFps + 0.5 );
 
         counter = 0;
         last60f = now;

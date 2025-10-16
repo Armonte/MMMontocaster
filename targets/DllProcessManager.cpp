@@ -19,8 +19,43 @@ void ProcessManager::writeGameInput ( uint8_t player, uint16_t direction, uint16
     ASSERT ( direction >= 0 );
     ASSERT ( direction <= 9 );
 
-    // LOG ( "player=%d; direction=%d; buttons=%04x", player, direction, buttons );
+    // MBAC has different input format!
+    if ( GameConfigInstance::isMBAC() )
+    {
+        // MBAC: 0x9920E8 is the main input buffer (33 bytes per player)
+        // Format: [direction][button_state_1]...[button_state_10][...other 22 bytes]
+        // button_state is a BITFIELD: bit 0 = currently pressed, bit 1 = just pressed, bit 2 = just released
+        
+        char *const baseAddr = (char*)0x9920E8 + (33 * (player - 1));
+        
+        // Write direction (byte 0) - numpad format
+        baseAddr[0] = direction;
+        
+        // Write button states (bytes 1-10)
+        // Each button gets a byte with bit 0 = held, bit 1 = just pressed
+        // For simplicity, set both bits when button is pressed
+        // NOTE: buttons arrive here UNSHIFTED (INLINE_INPUT already extracted them)!
+        baseAddr[1] = (buttons & 0x0010) ? 0x03 : 0;  // A
+        baseAddr[2] = (buttons & 0x0020) ? 0x03 : 0;  // B
+        baseAddr[3] = (buttons & 0x0008) ? 0x03 : 0;  // C
+        baseAddr[4] = (buttons & 0x0004) ? 0x03 : 0;  // D
+        baseAddr[5] = (buttons & 0x0080) ? 0x03 : 0;  // E
+        baseAddr[6] = (buttons & 0x0040) ? 0x03 : 0;  // AB
+        baseAddr[7] = (buttons & 0x0001) ? 0x03 : 0;  // Start
+        baseAddr[8] = (buttons & 0x0100) ? 0x03 : 0;  // FN1
+        baseAddr[9] = (buttons & 0x0200) ? 0x03 : 0;  // FN2
+        baseAddr[10] = (buttons & 0x0400) ? 0x03 : 0; // Confirm
+        
+        static int logCount = 0;
+        if ( logCount++ < 30 && (direction != 0 || buttons != 0) )
+            LOG ( "MBAC writeInput: P%d @ 0x%08X: dir=%d btns=0x%04X → [%02X %02X %02X %02X %02X %02X]", 
+                  player, (unsigned)baseAddr,
+                  baseAddr[0], buttons, baseAddr[1], baseAddr[2], baseAddr[3], baseAddr[4], baseAddr[5], baseAddr[6] );
+        
+        return;
+    }
 
+    // MBAA: Standard pointer-based system
     char *const baseAddr = * ( char ** ) g_gameConfig.getInputBufferPtrAddr();
 
     switch ( player )

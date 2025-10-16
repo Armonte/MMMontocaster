@@ -2301,19 +2301,6 @@ extern "C" void callback()
             appState = AppState::Polling;
         }
 
-        // MBAC: Bypass mainApp for now (not yet implemented)
-        if ( GameConfigInstance::isMBAC() )
-        {
-            // TODO: Create MBAC-specific mainApp or NetplayManager
-            // For now, just keep the game running to verify hook continues firing
-            static bool loggedOnce = false;
-            if (!loggedOnce) {
-                LOG("🟡 MBAC: Bypassing mainApp->callback() (not yet implemented)");
-                loggedOnce = true;
-            }
-            return;
-        }
-
         ASSERT ( mainApp.get() != 0 );
 
         mainApp->callback();

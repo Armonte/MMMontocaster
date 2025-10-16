@@ -4,7 +4,6 @@
 // Based on addresses from /mnt/c/dev/mbcaster/ANALYSIS_COMPLETE.md
 
 #include "DllAsmHacks.hpp"
-#include "../netplay/Constants.hpp"
 
 // MBAC-specific addresses (VERIFIED!)
 #define MBAC_LOOP_START_ADDR      ((char*)0x44B940)  // ✅ THE REAL MAIN LOOP! (inside CameraPosCompute)
@@ -12,8 +11,22 @@
 #define MBAC_HOOK_CALL2_ADDR      ((char*)0x45EF92)  // ✅ Code cave (14 bytes of CC padding)
 #define MBAC_MULTIPLE_MELTY       ((char*)0x45F82D)  // ✅ VERIFIED! WinMain mutex check (jnz -> jmp)
 
+// MBAC Input System Addresses (VERIFIED via IDA!)
+#define MBAC_READ_MENU_INPUT      ((char*)0x43D490)  // ✅ ReadMenuInput function
+#define MBAC_PROCESS_INPUT_BUFFER ((char*)0x46AD80)  // ✅ ProcessInputBuffer function
+#define MBAC_DIRECTINPUT_CREATE   ((char*)0x463B30)  // ✅ DirectInput8Create call location
+
+// MBAC Main Input Processing (VERIFIED via IDA!)
+#define MBAC_PROCESS_PLAYER_INPUT ((char*)0x43CF00)  // ✅ ProcessPlayerInput - Main input processing (handles all 4 players)
+#define MBAC_POLL_JOYSTICK        ((char*)0x421480)  // ✅ PollJoystickState - Polls DirectInput joystick state
+#define MBAC_GET_JOYSTICK_DIR     ((char*)0x4215B0)  // ✅ GetJoystickDirection - Converts joystick axes to direction
+#define MBAC_GET_JOYSTICK_BTNS    ((char*)0x421500)  // ✅ GetJoystickButtons - Reads joystick button state
+#define MBAC_INIT_DIRECTINPUT     ((char*)0x421970)  // ✅ InitDirectInput - Initializes DirectInput8
+#define MBAC_INIT_JOYSTICK_1      ((char*)0x421820)  // ✅ InitJoystick1 - Initializes first joystick device
+#define MBAC_INIT_JOYSTICK_2      ((char*)0x4218E0)  // ✅ InitJoystick2 - Initializes second joystick device
+
 // MBAC Performance frequency address
-#define MBAC_PERF_FREQ_ADDR       ((uint64_t*)0x774A60)  // Estimated -32 from MBAA
+#define MBAC_PERF_FREQ_ADDR       ((unsigned long long*)0x9A15B8)  // ✅ g_PerformanceFrequency - found via IDA!
 
 namespace AsmHacksMBAC
 {
@@ -98,14 +111,28 @@ inline const AsmHacks::AsmList hookMainLoop =
 // Enable disabled stages - same as MBAA (likely same addresses)
 inline const AsmHacks::AsmList enableDisabledStages = AsmHacks::enableDisabledStages;
 
-// Disable FPS limit - use MBAC performance frequency address
-inline const AsmHacks::Asm disableFpsLimit = { MBAC_PERF_FREQ_ADDR, { INLINE_DWORD ( 1 ), INLINE_DWORD ( 0 ) } };
+// Disable FPS limit by setting performance frequency to 1 (same technique as MBAA)
+// This makes the frame limiter think time moves very slowly, disabling it
+inline const AsmHacks::Asm disableFpsLimit = { 
+    MBAC_PERF_FREQ_ADDR, 
+    { INLINE_DWORD ( 1 ), INLINE_DWORD ( 0 ) }  // Set to 1 (uint64_t)
+};
 
 // Disable FPS counter - same offset as MBAA
 inline const AsmHacks::Asm disableFpsCounter = { ( void * ) 0x41FD23, INLINE_NOP_THREE_TIMES };  // -32 from MBAA
 
-// Hijack controls - same as MBAA for now (to be verified)
-inline const AsmHacks::AsmList hijackControls = AsmHacks::hijackControls;
+// Hijack controls - MBAC-specific: Disable game's input reading
+// Strategy: NOP out the call to ProcessPlayerInput (0x43CF00)
+//
+// ✅ FOUND via IDA MCP xref analysis:
+// 0x44B9C0: E8 3B 15 FF FF → CALL 0x43CF00 (ProcessPlayerInput)
+//
+// This is the FIRST instruction in CameraPosCompute!
+// By NOPing this, the game won't read keyboard/joystick input.
+// Then our writes to 0x9920E8 become the ONLY input source!
+inline const AsmHacks::AsmList hijackControls = {
+    { (void*)0x44B9C0, { 0x90, 0x90, 0x90, 0x90, 0x90 } }  // NOP the CALL
+};
 
 // Hijack menu - needs MBAC-specific addresses (to be verified)
 inline const AsmHacks::AsmList hijackMenu = AsmHacks::hijackMenu;

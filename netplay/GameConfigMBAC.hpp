@@ -106,23 +106,33 @@ public:
     // ===================================================================
     
     char** getInputBufferPtrAddr() const override {
-        return (char**)0x76E6AC;  // ✅ 80+ xrefs - EXACT SAME AS MBAA!
+        // ✅ MBAC difference: Buffer is DIRECT at 0x9920E8, no pointer!
+        // MBAA: pointer at 0x76E6AC → dereference → buffer
+        // MBAC: buffer directly at 0x9920E8 (33 bytes per player)
+        // Solution: Return address of a static pointer pointing to the buffer
+        static char* inputBufferPtr = (char*)0x9920E8;
+        return &inputBufferPtr;
     }
     
     uint32_t getP1DirectionOffset() const override {
-        return 0x18;  // Same as MBAACC
+        // MBAC uses 33-byte structures: byte_9920E8[33 * playerIndex]
+        // Direction appears to be at offset 0 based on ProcessPlayerInput
+        return 0x00;  // Player 1 at base + 0*33
     }
     
     uint32_t getP1ButtonsOffset() const override {
-        return 0x24;  // Same as MBAACC
+        // Buttons start at offset 1 (10 buttons, each 1 byte)
+        return 0x01;  // Player 1 buttons at base + 1
     }
     
     uint32_t getP2DirectionOffset() const override {
-        return 0x2C;  // Same as MBAACC
+        // Player 2 at base + 1*33 = +33 (0x21)
+        return 0x21;  // Player 2 direction
     }
     
     uint32_t getP2ButtonsOffset() const override {
-        return 0x38;  // Same as MBAACC
+        // Player 2 buttons at offset 33 + 1
+        return 0x22;  // Player 2 buttons
     }
     
     // ===================================================================
@@ -159,11 +169,16 @@ public:
     }
     
     uint8_t* getPauseFlagAddr() const override {
-        return (uint8_t*)0x76E652;  // ✅ g_frame_advance_flag - 3 xrefs
+        // CRITICAL: 0x76E652 is MBAA's address!
+        static uint8_t dummyPause = 0;
+        return &dummyPause;  // TODO: Find MBAC's pause flag addr
     }
     
     uint32_t* getSkipFramesAddr() const override {
-        return (uint32_t*)0x55D25C;  // Needs verification - may be same as MBAA
+        // CRITICAL: 0x55D25C is MBAA's address!
+        // Writing to wrong address causes CRASH!
+        static uint32_t dummySkipFrames = 0;
+        return &dummySkipFrames;  // TODO: Find MBAC's skip frames addr
     }
     
     uint32_t* getRoundTimerAddr() const override {
@@ -175,15 +190,25 @@ public:
     }
     
     uint8_t* getAliveFlagAddr() const override {
-        return (uint8_t*)0x76E650;  // ✅ g_game_loop_active - 6 xrefs
+        // CRITICAL: 0x9A039C has INVERTED logic from MBAA!
+        // MBAA: 1=alive, 0=closing | MBAC: 0=alive, 1=closing
+        // DllMain checks `if (!*flag)` which triggers on 0
+        // Reading 0x9A039C=0 (alive) triggers immediate exit!
+        // 
+        // WORKAROUND: Return static "always 1" until we find correct flag
+        static uint8_t alwaysAlive = 1;
+        return &alwaysAlive;
+        // TODO: Find MBAC flag with same polarity as MBAA (1=alive, 0=closing)
     }
     
     uint64_t* getPerfFreqAddr() const override {
-        return (uint64_t*)0x774A80;  // Needs verification
+        return (uint64_t*)0x9A15B8;  // ✅ g_PerformanceFrequency - found via IDA!
     }
     
     uint32_t* getFpsCounterAddr() const override {
-        return (uint32_t*)0x774A70;  // Needs verification
+        // CRITICAL: 0x774A70 is MBAA's address!
+        static uint32_t dummyFpsCounter = 60;
+        return &dummyFpsCounter;  // TODO: Find MBAC's FPS counter
     }
     
     // ===================================================================
@@ -201,19 +226,29 @@ public:
     }
     
     uint32_t* getGameStateAddr() const override {
-        return (uint32_t*)0x74D598;  // Needs verification - may be same as MBAA
+        // CRITICAL: 0x74D598 is MBAA's address!
+        // Reading/writing to wrong address causes CRASH!
+        static uint32_t dummyGameState = 0;
+        return &dummyGameState;  // TODO: Find MBAC's game state addr
     }
     
     uint8_t* getIntroStateAddr() const override {
-        return (uint8_t*)0x55D20B;  // Needs verification
+        // CRITICAL: 0x55D20B is MBAA's address!
+        // Writing to wrong address causes CRASH!
+        static uint8_t dummyIntroState = 0;
+        return &dummyIntroState;  // TODO: Find MBAC's intro state addr
     }
     
     uint32_t* getSkippableFlagAddr() const override {
-        return (uint32_t*)0x74D99C;  // Needs verification
+        // CRITICAL: 0x74D99C is MBAA's address!
+        static uint32_t dummySkippable = 0;
+        return &dummySkippable;  // TODO: Find MBAC's skippable flag addr
     }
     
     uint32_t* getMenuStateCounterAddr() const override {
-        return (uint32_t*)0x767440;  // Needs verification
+        // CRITICAL: 0x767440 is MBAA's address!
+        static uint32_t dummyMenuState = 0;
+        return &dummyMenuState;  // TODO: Find MBAC's menu state counter
     }
     
     // ===================================================================
@@ -580,7 +615,10 @@ public:
     // ===================================================================
     
     uint32_t* getD3DX9ObjAddr() const override {
-        return (uint32_t*)0x76E7D4;  // Needs verification
+        // NOTE: This address is NOT NEEDED for DirectX hooking!
+        // The hooking system works by intercepting d3d9.dll functions directly.
+        // Returning nullptr as this method is never actually called.
+        return nullptr;  // Not used by DirectX hooking system
     }
     
     uint32_t* getReplayCreatedAddr() const override {
