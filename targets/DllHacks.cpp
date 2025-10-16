@@ -44,19 +44,21 @@ void initializePreLoad()
         const AsmList& hooks = g_gameConfig.getHookMainLoop();
         LOG ( "   📦 hookMainLoop contains %d patches", (int)hooks.size() );
         
-        // Apply ALL hookMainLoop patches (intro skip + main loop)
+        // Apply ALL hookMainLoop patches - VERIFIED working via CE!
         for ( size_t i = 0; i < hooks.size(); ++i )
         {
             const char* patchName = "UNKNOWN";
             if ( i == 0 ) patchName = "INTRO_SKIP";
-            else if ( i == 1 ) patchName = "HOOK_CALL1";
-            else if ( i == 2 ) patchName = "HOOK_CALL2";
-            else if ( i == 3 ) patchName = "LOOP_START";
+            else if ( i == 1 ) patchName = "HOOK_WRAPPER";  // Wrapper at code cave
+            else if ( i == 2 ) patchName = "UNUSED";
+            else if ( i == 3 ) patchName = "LOOP_REDIRECT"; // Redirect call to wrapper
             
             LOG ( "   ✅ [%s] Writing patch %d at 0x%08X (%d bytes)",
                   patchName, (int)i, (uintptr_t)hooks[i].addr, (int)hooks[i].bytes.size() );
             WRITE_ASM_HACK ( hooks[i] );
         }
+        
+        LOG ( "   🎯 Hook strategy VERIFIED via CE: call wrapper{callback+WindowsMessagePump}; ret" );
         
         // MULTIWINDOW: @ 0x40D23A ❌ DISABLED (wrong address)
         LOG ( "   ❌ [MULTI_WINDOW] Skipping multi-window patch (address not verified for MBAC)" );

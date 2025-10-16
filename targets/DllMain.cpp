@@ -2261,15 +2261,24 @@ extern "C" void callback()
 {
     // MBAC HOOK VERIFICATION: Log first few callbacks to verify hook is working
     static int callbackCount = 0;
-    if ( GameConfigInstance::isMBAC() && callbackCount < 10 )
+    static DWORD lastCallbackTime = 0;
+    
+    if ( GameConfigInstance::isMBAC() )
     {
-        LOG ( "🎉 MBAC callback() #%d - Hook is working!", callbackCount );
-        callbackCount++;
-    }
-    else if ( GameConfigInstance::isMBAC() && callbackCount == 10 )
-    {
-        LOG ( "✅ MBAC callback verified! (further logs suppressed)" );
-        callbackCount++;
+        DWORD now = GetTickCount();
+        
+        if ( callbackCount < 20 )  // Log first 20 to see pattern
+        {
+            LOG ( "🎉 MBAC callback() #%d - Hook is working! (delta: %dms)", 
+                  callbackCount, now - lastCallbackTime );
+            callbackCount++;
+            lastCallbackTime = now;
+        }
+        else if ( callbackCount == 20 )
+        {
+            LOG ( "✅ MBAC callback verified! (further logs suppressed)" );
+            callbackCount++;
+        }
     }
     
     if ( appState == AppState::Deinitialized )
@@ -2297,6 +2306,11 @@ extern "C" void callback()
         {
             // TODO: Create MBAC-specific mainApp or NetplayManager
             // For now, just keep the game running to verify hook continues firing
+            static bool loggedOnce = false;
+            if (!loggedOnce) {
+                LOG("🟡 MBAC: Bypassing mainApp->callback() (not yet implemented)");
+                loggedOnce = true;
+            }
             return;
         }
 

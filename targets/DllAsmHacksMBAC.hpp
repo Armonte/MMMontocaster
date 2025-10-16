@@ -76,22 +76,22 @@ inline const AsmHacks::AsmList hookMainLoop =
 {
     skipStartupLogos,  // ✅ PATCH 0: Skip intro (REQUIRED! Timer doesn't run during intro)
     
-    // ✅ PATCH 1: Inject callback at code cave @ 0x45F032 (10 bytes needed, 14 available)
+    // ✅ PATCH 1: Wrapper function at code cave (11 bytes: call + call + ret)
     { MBAC_HOOK_CALL1_ADDR, {
-        0xE8, INLINE_DWORD ( ( ( char * ) &AsmHacks::callback ) - MBAC_HOOK_CALL1_ADDR - 5 ),   // call callback
-        0xE9, INLINE_DWORD ( MBAC_HOOK_CALL2_ADDR - MBAC_HOOK_CALL1_ADDR - 10 )                  // jmp HOOK_CALL2
+        0xE8, INLINE_DWORD ( ( ( char * ) &AsmHacks::callback ) - MBAC_HOOK_CALL1_ADDR - 5 ),     // call callback
+        0xE8, INLINE_DWORD ( ((char*)0x45EE80) - MBAC_HOOK_CALL1_ADDR - 10 ),                      // call WindowsMessagePump
+        0xC3                                                                                       // ret (returns to 0x44B945)
     } },
     
-    // ✅ PATCH 2: Restore original call at code cave @ 0x45EF92 (10 bytes needed, 14 available)
+    // ✅ PATCH 2: Unused for now
     { MBAC_HOOK_CALL2_ADDR, {
-        0xE8, 0x3B, 0x35, 0x01, 0x00,                                                // call WindowsMessagePump (original instruction)
-        0xE9, INLINE_DWORD ( MBAC_LOOP_START_ADDR - MBAC_HOOK_CALL2_ADDR - 10 + 5 )  // jmp LOOP_START+5 (after the call)
+        0x90, 0x90, 0x90, 0x90, 0x90,  // nop (unused)
+        0x90, 0x90, 0x90, 0x90, 0x90
     } },
     
-    // ✅ PATCH 3: Redirect loop to our hook @ 0x44B940 (6 bytes: E8 ?? ?? ?? ?? 00 → E9 ?? ?? ?? ?? 90)
+    // ✅ PATCH 3: Replace call @ 0x44B940 (5 bytes ONLY - next byte is 0x85 = test eax, eax!)
     { MBAC_LOOP_START_ADDR, {
-        0xE9, INLINE_DWORD ( MBAC_HOOK_CALL1_ADDR - MBAC_LOOP_START_ADDR - 5 ),     // jmp HOOK_CALL1
-        0x90                                                                         // nop (padding)
+        0xE8, INLINE_DWORD ( MBAC_HOOK_CALL1_ADDR - MBAC_LOOP_START_ADDR - 5 )      // call HOOK_CALL1 (5 bytes, no nop!)
     } },
 };
 
