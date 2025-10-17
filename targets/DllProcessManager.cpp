@@ -46,13 +46,19 @@ void ProcessManager::writeGameInput ( uint8_t player, uint16_t direction, uint16
         baseAddr[9] = (buttons & 0x0200) ? 0x03 : 0;  // FN2
         baseAddr[10] = (buttons & 0x0400) ? 0x03 : 0; // Confirm
         
+        // ALSO write to menu input addresses (0x933188 for P1, 0x9331A9 for P2)
+        // These are used by character select and menus!
+        uint16_t *const menuInputAddr = (uint16_t*)(player == 1 ? 0x933188 : 0x9331A9);
+        *menuInputAddr = COMBINE_INPUT(direction, buttons);
+        
         static int logCount = 0;
         if ( logCount++ < 30 && (direction != 0 || buttons != 0) )
-            LOG ( "MBAC writeInput: P%d @ 0x%08X: dir=%d btns=0x%04X → [%02X][%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X]", 
+            LOG ( "MBAC writeInput: P%d @ 0x%08X: dir=%d btns=0x%04X → [%02X][%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X] | Menu@0x%08X=0x%04X", 
                   player, (unsigned)baseAddr,
                   baseAddr[0], buttons, 
                   baseAddr[1], baseAddr[2], baseAddr[3], baseAddr[4], baseAddr[5], 
-                  baseAddr[6], baseAddr[7], baseAddr[8], baseAddr[9], baseAddr[10] );
+                  baseAddr[6], baseAddr[7], baseAddr[8], baseAddr[9], baseAddr[10],
+                  (unsigned)menuInputAddr, *menuInputAddr );
         
         return;
     }

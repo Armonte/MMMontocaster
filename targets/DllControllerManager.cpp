@@ -210,28 +210,47 @@ void DllControllerManager::updateControls ( uint16_t *localInputs )
     // Only update player controls when the overlay is NOT enabled
     if ( !DllOverlayUi::isEnabled() )
     {
+        static int logCount = 0;
+        static bool loggedNullController = false;
+        
         if ( _playerControllers[localPlayer - 1] ) {
             uint16_t input = getInput ( _playerControllers[localPlayer - 1] );
-            if ( localPlayer == 1 ) {
-                if ( *g_gameConfig.getP1FacingFlagAddr() )
-                    input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
-            }
-            if ( localPlayer == 2) {
-                if ( *g_gameConfig.getP2FacingFlagAddr() )
-                    input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
+            
+            if ( logCount++ < 20 && input != 0 )
+                LOG ( "🎮 updateControls: localPlayer=%d, input=0x%04X", localPlayer, input );
+            
+            // MBAC: Skip facing flag access (MBAA addresses, will crash)
+            if ( !GameConfigInstance::isMBAC() )
+            {
+                if ( localPlayer == 1 ) {
+                    if ( *g_gameConfig.getP1FacingFlagAddr() )
+                        input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
+                }
+                if ( localPlayer == 2) {
+                    if ( *g_gameConfig.getP2FacingFlagAddr() )
+                        input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
+                }
             }
             localInputs[0] = input;
+        } else if ( !loggedNullController ) {
+            LOG ( "⚠️ Controller not assigned for localPlayer=%d!", localPlayer );
+            loggedNullController = true;
         }
 
         if ( _playerControllers[remotePlayer - 1] ) {
             uint16_t input = getInput ( _playerControllers[remotePlayer - 1] );
-            if ( remotePlayer == 1 ) {
-                if ( *g_gameConfig.getP1FacingFlagAddr() )
-                    input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
-            }
-            if ( remotePlayer == 2) {
-                if ( *g_gameConfig.getP2FacingFlagAddr() )
-                    input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
+            
+            // MBAC: Skip facing flag access (MBAA addresses, will crash)
+            if ( !GameConfigInstance::isMBAC() )
+            {
+                if ( remotePlayer == 1 ) {
+                    if ( *g_gameConfig.getP1FacingFlagAddr() )
+                        input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
+                }
+                if ( remotePlayer == 2) {
+                    if ( *g_gameConfig.getP2FacingFlagAddr() )
+                        input |= COMBINE_INPUT ( 0, CC_PLAYER_FACING );
+                }
             }
             localInputs[1] = input;
         }

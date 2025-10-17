@@ -27,8 +27,15 @@ void enable()
         return;
 
     // TODO find an alternative because this doesn't work on Wine
-    WRITE_ASM_HACK ( AsmHacks::disableFpsLimit );
-    WRITE_ASM_HACK ( AsmHacks::disableFpsCounter );
+    
+    // Patch to disable game's frame limiter (use game-specific config)
+    LOG ( "🔧 Writing disableFpsLimit patch..." );
+    WRITE_ASM_HACK ( g_gameConfig.getDisableFpsLimit() );
+    LOG ( "✅ disableFpsLimit patch written!" );
+    
+    LOG ( "🔧 Writing disableFpsCounter patch..." );
+    WRITE_ASM_HACK ( g_gameConfig.getDisableFpsCounter() );
+    LOG ( "✅ disableFpsCounter patch written!" );
 
     isEnabled = true;
 

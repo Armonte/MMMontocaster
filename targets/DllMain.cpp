@@ -69,11 +69,11 @@ using namespace std;
 
 #define LOG_SYNC_CHARACTER(N)                                                                                       \
     LOG_SYNC ( "P%u: C=%u; M=%u; c=%u; seq=%u; st=%u; hp=%u; rh=%u; gb=%.1f; gq=%.1f; mt=%u; ht=%u; x=%d; y=%d; f=%d",    \
-               N, *CC_P ## N ## _CHARACTER_ADDR, *CC_P ## N ## _MOON_SELECTOR_ADDR,                                 \
-               *CC_P ## N ## _COLOR_SELECTOR_ADDR, *CC_P ## N ## _SEQUENCE_ADDR, *CC_P ## N ## _SEQ_STATE_ADDR,     \
-               *CC_P ## N ## _HEALTH_ADDR, *CC_P ## N ## _RED_HEALTH_ADDR, *CC_P ## N ## _GUARD_BAR_ADDR,           \
-               *CC_P ## N ## _GUARD_QUALITY_ADDR,  *CC_P ## N ## _METER_ADDR, *CC_P ## N ## _HEAT_ADDR,             \
-               *CC_P ## N ## _X_POSITION_ADDR, *CC_P ## N ## _Y_POSITION_ADDR, *CC_P ## N ## _FACING_FLAG_ADDR)
+               N, *g_gameConfig.getP##N##CharacterAddr(), *g_gameConfig.getP##N##MoonSelectorAddr(),                \
+               *g_gameConfig.getP##N##ColorSelectorAddr(), *g_gameConfig.getP##N##SequenceAddr(), *g_gameConfig.getP##N##SeqStateAddr(), \
+               *g_gameConfig.getP##N##HealthAddr(), *g_gameConfig.getP##N##RedHealthAddr(), *g_gameConfig.getP##N##GuardBarAddr(), \
+               *g_gameConfig.getP##N##GuardQualityAddr(),  *g_gameConfig.getP##N##MeterAddr(), *g_gameConfig.getP##N##HeatAddr(), \
+               *g_gameConfig.getP##N##XPositionAddr(), *g_gameConfig.getP##N##YPositionAddr(), *g_gameConfig.getP##N##FacingFlagAddr())
 
 
 // Main application state
@@ -116,7 +116,7 @@ struct DllMain
     // If remote has loaded up to character select
     bool remoteCharaSelectLoaded = false;
 
-    // ChangeMonitor for CC_WORLD_TIMER_ADDR
+    // ChangeMonitor for world timer
     RefChangeMonitor<Variable, uint32_t> worldTimerMoniter;
 
     // Timer for resending inputs while waiting
@@ -192,6 +192,14 @@ struct DllMain
 
     void frameStepNormal()
     {
+        // MBAC: Add safety logging for Loading state
+        static NetplayState lastLoggedState = NetplayState::Unknown;
+        if ( GameConfigInstance::isMBAC() && netMan.getState() != lastLoggedState )
+        {
+            LOG ( "🎮 [FRAMESTEP] State changed to: %s", netMan.getState().str() );
+            lastLoggedState = netMan.getState();
+        }
+        
         switch ( netMan.getState().value )
         {
             case NetplayState::PreInitial:
@@ -219,6 +227,22 @@ struct DllMain
             case NetplayState::RetryMenu:
             case NetplayState::ReplayMenu:
             {
+                // MBAC: Log entry into this case block
+                static NetplayState lastFrameStepState = NetplayState::Unknown;
+                static int loadingFrameCount = 0;
+                const bool logThisFrame = GameConfigInstance::isMBAC() && 
+                                          netMan.getState() == NetplayState::Loading && 
+                                          loadingFrameCount++ < 5;
+                
+                if ( GameConfigInstance::isMBAC() && netMan.getState() != lastFrameStepState )
+                {
+                    LOG ( "🎮 [FRAMESTEP_CASE] Entered case block for state: %s", netMan.getState().str() );
+                    lastFrameStepState = netMan.getState();
+                    if ( netMan.getState() == NetplayState::Loading )
+                        loadingFrameCount = 0;
+                }
+                
+                if ( logThisFrame ) LOG ( "🎮 [FRAMESTEP_CASE] Step A: Checking spectate fast-forward..." );
                 // Fast-forward if spectator
                 if ( spectateFastFwd && clientMode.isSpectate() && netMan.getState() != NetplayState::Loading )
                 {
@@ -237,7 +261,9 @@ struct DllMain
                         doneSkipping = true;
                     }
                 }
+                if ( logThisFrame ) LOG ( "🎮 [FRAMESTEP_CASE] Step A complete" );
 
+                if ( logThisFrame ) LOG ( "🎮 [FRAMESTEP_CASE] Step B: Checking hard sync..." );
                 // Hard Sync to current state
                 if ( spectateHardSync && clientMode.isSpectate() && netMan.getState() != NetplayState::Loading )
                 {
@@ -257,10 +283,15 @@ struct DllMain
                         spectateHardSync = false;
                     }
                 }
+                if ( logThisFrame ) LOG ( "🎮 [FRAMESTEP_CASE] Step B complete" );
 
+                if ( logThisFrame ) LOG ( "🎮 [FRAMESTEP_CASE] Step C: Updating keyboard state..." );
                 // Update controller state once per frame
                 KeyboardState::update();
+                if ( logThisFrame ) LOG ( "🎮 [FRAMESTEP_CASE] Step D: Calling updateControls..." );
                 updateControls ( &localInputs[0] );
+                if ( logThisFrame ) LOG ( "🎮 [FRAMESTEP_CASE] Step D complete" );
+                if ( logThisFrame ) LOG ( "🎮 [FRAMESTEP_CASE] Step E: Checking framestep loop..." );
                 while ( framestepEnabled && !netMan.config.mode.isOnline() ) {
                     if ( ( GetAsyncKeyState ( VK_F6 ) & 0x1 )  == 1 )
                         framestepEnabled = false;
@@ -269,9 +300,11 @@ struct DllMain
                     if ( ( GetAsyncKeyState ( VK_F7 ) & 0x1 )  == 1 )
                         break;
                 }
+                if ( logThisFrame ) LOG ( "🎮 [FRAMESTEP_CASE] Step F: Checking overlay..." );
 
                 if ( DllOverlayUi::isEnabled() )                                            // Overlay UI controls
                 {
+                    if ( logThisFrame ) LOG ( "🎮 [FRAMESTEP_CASE] Step G: Overlay enabled, clearing inputs..." );
                     localInputs[0] = localInputs[1] = 0;
                 }
                 else if ( clientMode.isNetplay() || clientMode.isLocal() )                  // Netplay + local controls
@@ -784,9 +817,12 @@ struct DllMain
                     || ( netMan.getFrame() == 0 )
                     || ( randomInputs && netMan.getFrame() % 150 == 149 ) )
             {
-                MsgPtr msgSyncHash ( new SyncHash ( netMan.getIndexedFrame() ) );
-                dataSocket->send ( msgSyncHash );
-                localSync.push_back ( msgSyncHash );
+                // CRASH FIX: Skip SyncHash for MBAC until addresses are properly mapped
+                if ( !GameConfigInstance::isMBAC() ) {
+                    MsgPtr msgSyncHash ( new SyncHash ( netMan.getIndexedFrame() ) );
+                    dataSocket->send ( msgSyncHash );
+                    localSync.push_back ( msgSyncHash );
+                }
             }
         }
 
@@ -899,9 +935,9 @@ struct DllMain
         if ( netMan.getState() == NetplayState::CharaSelect )
         {
             LOG_SYNC ( "P1: sel=%u; C=%u; M=%u; c=%u; P2: sel=%u; C=%u; M=%u; c=%u",
-                       *g_gameConfig.getP1SelectorModeAddr(), *CC_P1_CHARACTER_ADDR,
+                       *g_gameConfig.getP1SelectorModeAddr(), *g_gameConfig.getP1CharacterAddr(),
                        *g_gameConfig.getP1MoonSelectorAddr(), *g_gameConfig.getP1ColorSelectorAddr(),
-                       *g_gameConfig.getP2SelectorModeAddr(), *CC_P2_CHARACTER_ADDR,
+                       *g_gameConfig.getP2SelectorModeAddr(), *g_gameConfig.getP2CharacterAddr(),
                        *g_gameConfig.getP2MoonSelectorAddr(), *g_gameConfig.getP2ColorSelectorAddr() );
             return;
         }
@@ -958,8 +994,10 @@ struct DllMain
     void frameStep()
     {
         static int frameCount = 0;
-        if ( frameCount++ < 100 )  // Log first 100 frames only
-            LOG ( "📍 frameStep() called! frame=%d, netState=%s", frameCount, netMan.getState().str() );
+        frameCount++;
+        // Suppress frameStep logs - too spammy
+        // if ( frameCount < 20 )
+        //     LOG ( "📍 frameStep() called! frame=%d, netState=%s", frameCount, netMan.getState().str() );
         
         // New frame
         netMan.updateFrame();
@@ -968,14 +1006,15 @@ struct DllMain
         // Check for changes to important variables for state transitions
         ChangeMonitor::get().check();
 
-        // MBAC: Manually transition to CharaSelect state when detected
+        // MBAC: Force transition to CharaSelect since we bypass menu
+        // We hijack g_BattleScene so natural gameMode change might not trigger
         if ( GameConfigInstance::isMBAC() && netMan.getState() == NetplayState::Initial )
         {
-            uint32_t introState = *((uint32_t*)0x7A319C);
+            uint32_t gameMode = *g_gameConfig.getGameModeAddr();
             static bool transitioned = false;
-            if ( !transitioned && introState == 0 )
+            if ( !transitioned && gameMode == 0 )
             {
-                LOG ( "🎨 [MBAC] Detected character select! Transitioning to CharaSelect state..." );
+                LOG ( "🎨 [MBAC] Detected character select (gameMode=0)! Transitioning..." );
                 netplayStateChanged ( NetplayState::CharaSelect );
                 transitioned = true;
             }
@@ -1001,11 +1040,12 @@ struct DllMain
 
         // Update spectators
         frameStepSpectators();
-
+        
         // Write game inputs
         uint16_t input1 = netMan.getInput ( localPlayer );
         uint16_t input2 = netMan.getInput ( remotePlayer );
         
+        // Log inputs only when non-zero (first 50 times)
         static int inputLogCount = 0;
         if ( inputLogCount++ < 50 && ( input1 != 0 || input2 != 0 ) )
             LOG ( "🎮 Writing inputs: P1=0x%04X, P2=0x%04X", input1, input2 );
@@ -1023,6 +1063,10 @@ struct DllMain
 
     void netplayStateChanged ( NetplayState state )
     {
+        // MBAC: Comprehensive logging for crash debugging
+        if ( GameConfigInstance::isMBAC() )
+            LOG ( "🎮 [NETPLAY_STATE] Transitioning: %s → %s", netMan.getState().str(), state.str() );
+        
         // Catch invalid transitions
         if ( ! netMan.isValidNext ( state ) )
         {
@@ -1034,15 +1078,19 @@ struct DllMain
             return;
         }
 
+        LOG ( "🎮 [NETPLAY_STATE] Step 1: Checking overlay..." );
         // Close the overlay if not mapping
         if ( ! DllOverlayUi::isShowingMessage() && isNotMapping() )
         {
             DllOverlayUi::disable();
         }
+        LOG ( "🎮 [NETPLAY_STATE] Step 2: Overlay checked" );
 
+        LOG ( "🎮 [NETPLAY_STATE] Step 3: Checking if leaving Initial/AutoCharaSelect..." );
         // Leaving Initial or AutoCharaSelect
         if ( netMan.getState() == NetplayState::Initial || netMan.getState() == NetplayState::AutoCharaSelect )
         {
+            LOG ( "🎮 [NETPLAY_STATE] Step 3a: Leaving Initial/AutoCharaSelect - enabling controllers..." );
 #ifdef RELEASE
             // Try to focus the game window
             SetForegroundWindow ( ( HWND ) DllHacks::windowHandle );
@@ -1052,10 +1100,13 @@ struct DllMain
             if ( ! ProcessManager::isWine() )
                 ControllerManager::get().startHighFreqPolling();
 
+            LOG ( "🎮 [NETPLAY_STATE] Step 3b: Initializing overlay..." );
             // Initialize the overlay now
             DllOverlayUi::init();
+            LOG ( "🎮 [NETPLAY_STATE] Step 3c: Overlay initialized" );
         }
 
+        LOG ( "🎮 [NETPLAY_STATE] Step 4: Checking if leaving Skippable/CharaIntro..." );
         // Leaving Skippable
         if ( netMan.getState() == NetplayState::Skippable ||
              netMan.getState() == NetplayState::CharaIntro )
@@ -1065,26 +1116,33 @@ struct DllMain
             lazyDisconnect = false;
         }
 
+        LOG ( "🎮 [NETPLAY_STATE] Step 5: Checking if leaving Loading..." );
         // Leaving Loading
         if ( netMan.getState() == NetplayState::Loading )
         {
             // Reset color loading state
             AsmHacks::numLoadedColors = 0;
         }
+        LOG ( "🎮 [NETPLAY_STATE] Step 6: Loading check complete" );
 
+        LOG ( "🎮 [NETPLAY_STATE] Step 7: Checking if entering InGame..." );
         // Entering InGame
         if ( state == NetplayState::InGame )
         {
+            LOG ( "🎮 [NETPLAY_STATE] Step 7a: Entering InGame - checking rollback..." );
             if ( netMan.getRollback() )
                 rollMan.allocateStates();
+            LOG ( "🎮 [NETPLAY_STATE] Step 7b: Checking trial mode..." );
             if ( netMan.config.mode.isTrial() ) {
                 LOG("Load trial file");
                 trialMan.loadTrialFile();
                 TrialManager::loadTrialFolder();
                 trialMan.initialized = true;
             }
+            LOG ( "🎮 [NETPLAY_STATE] Step 7c: InGame entry complete" );
         }
 
+        LOG ( "🎮 [NETPLAY_STATE] Step 8: Checking if leaving InGame..." );
         // Leaving InGame
         if ( netMan.getState() == NetplayState::InGame )
         {
@@ -1096,6 +1154,7 @@ struct DllMain
             }
         }
 
+        LOG ( "🎮 [NETPLAY_STATE] Step 9: Checking RNG sync..." );
         // Entering CharaSelect OR entering InGame
         if ( ( state == NetplayState::CharaSelect || state == NetplayState::InGame )
              && !clientMode.isOffline() )
@@ -1104,6 +1163,7 @@ struct DllMain
             LOG( "enabling RNG sync" );
             shouldSyncRngState = true;
         }
+        LOG ( "🎮 [NETPLAY_STATE] Step 10: RNG sync checked" );
 
         // Entering RetryMenu
         if ( state == NetplayState::RetryMenu )
@@ -1126,16 +1186,24 @@ struct DllMain
             }
         }
 
+        LOG ( "🎮 [NETPLAY_STATE] Step 11: Calling netMan.setState(%s)...", state.str() );
         // Update local state
         netMan.setState ( state );
+        LOG ( "🎮 [NETPLAY_STATE] Step 12: setState complete!" );
 
+        LOG ( "🎮 [NETPLAY_STATE] Step 13: Updating remote index..." );
         // Update remote index
         if ( dataSocket && dataSocket->isConnected() )
             dataSocket->send ( new TransitionIndex ( netMan.getIndex() ) );
+        LOG ( "🎮 [NETPLAY_STATE] ✅ Transition complete!" );
     }
 
     void gameModeChanged ( uint32_t previous, uint32_t current )
     {
+        // MBAC: Log ALL game mode changes to debug crash
+        if ( GameConfigInstance::isMBAC() )
+            LOG ( "🎮 [GAMEMODE] Changed: %u → %u (netState=%s)", previous, current, netMan.getState().str() );
+        
         if ( current == 0
                 || current == CC_GAME_MODE_STARTUP
                 || current == CC_GAME_MODE_OPENING
@@ -1162,25 +1230,40 @@ struct DllMain
             return;
         }
 
-        if ( current == CC_GAME_MODE_CHARA_SELECT )
+        // MBAC uses different game mode values!
+        // MBAC: 0=CharaSelect, 8=Loading, 1=InGame
+        // MBAA: 20=CharaSelect, 8=Loading, 1=InGame
+        const uint32_t charaSelectMode = GameConfigInstance::isMBAC() ? 0 : CC_GAME_MODE_CHARA_SELECT;
+        
+        if ( current == charaSelectMode )
         {
+            LOG ( "🎮 [TRANSITION] CharaSelect detected (mode=%u)", current );
             netplayStateChanged ( NetplayState::CharaSelect );
             return;
         }
 
         if ( current == CC_GAME_MODE_LOADING )
         {
+            LOG ( "🎮 [TRANSITION] Loading detected (mode=%u)", current );
             netplayStateChanged ( NetplayState::Loading );
             return;
         }
 
         if ( current == CC_GAME_MODE_IN_GAME )
         {
+            LOG ( "🎮 [TRANSITION] GameMode changed to IN_GAME! Transitioning netplay state..." );
+            
             // Versus mode in-game starts with character intros, which is a skippable state
             if ( netMan.config.mode.isVersus() && !netMan.config.mode.isReplay() )
+            {
+                LOG ( "🎮 [TRANSITION] Versus mode → CharaIntro state" );
                 netplayStateChanged ( NetplayState::CharaIntro );
+            }
             else
+            {
+                LOG ( "🎮 [TRANSITION] Training mode → InGame state" );
                 netplayStateChanged ( NetplayState::InGame );
+            }
             return;
         }
 
@@ -1606,7 +1689,8 @@ struct DllMain
                 }
                 if ( ProcessManager::isWine() || options[Options::FrameLimiter] ) {
 
-                } else {
+                } else if ( !GameConfigInstance::isMBAC() ) {
+                    // Skip DllFrameRate for MBAC - needs address verification
                     DllFrameRate::enable();
                 }
 
@@ -2344,7 +2428,7 @@ extern "C" void callback()
         ControllerManager::get().deinitialize();
         deinitialize();
 
-        *CC_ALIVE_FLAG_ADDR = 0;
+        *g_gameConfig.getAliveFlagAddr() = 0;
     }
 }
 

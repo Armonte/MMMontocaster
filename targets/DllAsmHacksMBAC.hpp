@@ -111,15 +111,22 @@ inline const AsmHacks::AsmList hookMainLoop =
 // Enable disabled stages - same as MBAA (likely same addresses)
 inline const AsmHacks::AsmList enableDisabledStages = AsmHacks::enableDisabledStages;
 
-// Disable FPS limit by setting performance frequency to 1 (same technique as MBAA)
-// This makes the frame limiter think time moves very slowly, disabling it
+// Disable FPS limit by NOPing the timeGetTime wait loop jump
+// ⚠️ CRITICAL: This function also does DirectDraw Present, so we can't skip it!
+// Strategy: NOP the conditional jump that creates the busy-wait loop
+// 0x460dac: 77 E2 = ja short loc_460D90 (timeGetTime loop - most common path)
+// Note: This only disables the timeGetTime path. If the game uses QPC path,
+// it will still limit FPS (but that seems unlikely based on dword_9E6240=0xFFFFFFFF)
 inline const AsmHacks::Asm disableFpsLimit = { 
-    MBAC_PERF_FREQ_ADDR, 
-    { INLINE_DWORD ( 1 ), INLINE_DWORD ( 0 ) }  // Set to 1 (uint64_t)
+    ( void * ) 0x460dac,  // 'ja short loc_460D90' - timeGetTime() loop (2 bytes: 77 e2)
+    { 0x90, 0x90 }  // NOP NOP
 };
 
-// Disable FPS counter - same offset as MBAA
-inline const AsmHacks::Asm disableFpsCounter = { ( void * ) 0x41FD23, INLINE_NOP_THREE_TIMES };  // -32 from MBAA
+// Disable FPS counter - same as above for MBAC
+inline const AsmHacks::Asm disableFpsCounter = { 
+    ( void * ) 0x460dac,  // Same patch (idempotent)
+    { 0x90, 0x90 }  // NOP NOP
+};
 
 // Hijack controls - MBAC-specific: Disable game's input reading
 // Strategy: NOP out the call to ProcessPlayerInput (0x43CF00)

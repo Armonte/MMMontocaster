@@ -141,23 +141,23 @@ public:
     // ===================================================================
     
     uint32_t* getRngState0Addr() const override {
-        return (uint32_t*)0x563778;  // ✅ outRNG - 19 xrefs verified
+        return (uint32_t*)0x9a038c;  // ✅ VERIFIED: MBAC RNG state
     }
     
     uint32_t* getRngState1Addr() const override {
-        return (uint32_t*)0x56377C;  // ✅ totalRNGCalls - 33 xrefs verified
+        return (uint32_t*)0x9a01fc;  // ✅ VERIFIED: MBAC RNG call count
     }
     
     uint32_t* getRngState2Addr() const override {
-        return (uint32_t*)0x564068;  // ✅ rngIndex - 100+ xrefs verified
+        return (uint32_t*)0x4957c0;  // ✅ VERIFIED: MBAC RNG increment
     }
     
     char* getRngState3Addr() const override {
-        return (char*)0x56406C;  // ✅ RNG state array - 3 xrefs verified
+        return (char*)0x4957bc;  // ✅ VERIFIED: MBAC RNG multiplier
     }
     
     uint32_t getRngState3Size() const override {
-        return 220;  // ✅ 56 DWORDs - 4 bytes (index) = 220 bytes
+        return 4;  // ✅ MBAC uses 4-byte RNG multiplier
     }
     
     // ===================================================================
@@ -175,10 +175,10 @@ public:
     }
     
     uint32_t* getSkipFramesAddr() const override {
-        // CRITICAL: 0x55D25C is MBAA's address!
-        // Writing to wrong address causes CRASH!
-        static uint32_t dummySkipFrames = 0;
-        return &dummySkipFrames;  // TODO: Find MBAC's skip frames addr
+        // MBAC doesn't have a native skip frames flag
+        // We create our own static variable for CCCaster to use
+        static uint32_t mbacSkipFrames = 0;
+        return &mbacSkipFrames;  // Custom flag - CCCaster can write to this
     }
     
     uint32_t* getRoundTimerAddr() const override {
@@ -216,7 +216,7 @@ public:
     // ===================================================================
     
     uint32_t* getGameModeAddr() const override {
-        return (uint32_t*)0x7CA584;  // ✅ From MBCaster - game mode
+        return (uint32_t*)0x7A319C;  // ✅ MBAC unified state: 0=CharaSelect, 8=Loading, 1=InGame
     }
     
     // MBAC-specific: Intro/menu state address
@@ -451,23 +451,27 @@ public:
     // ===================================================================
     
     uint32_t* getP1SelectorModeAddr() const override {
-        return (uint32_t*)0x74D8EC;  // Needs verification
+        static uint32_t dummySelector = 0;  // MBAC - return dummy until verified
+        return &dummySelector;
     }
     
     uint32_t* getP1CharaSelectorAddr() const override {
-        return (uint32_t*)0x74D8F8;  // Needs verification
+        static uint32_t dummyCharaSelector = 0;  // MBAC - return dummy until verified
+        return &dummyCharaSelector;
     }
     
     uint32_t* getP1CharacterAddr() const override {
-        return (uint32_t*)0x74D8FC;  // Needs verification
+        return (uint32_t*)0x882858;  // ✅ VERIFIED: P1 character select (CSS)
     }
     
     uint32_t* getP1MoonSelectorAddr() const override {
-        return (uint32_t*)0x74D900;  // NOT USED - MBAC has no moon styles
+        static uint32_t dummyMoon = 0;  // MBAC has no moon styles - return dummy
+        return &dummyMoon;
     }
     
     uint32_t* getP1ColorSelectorAddr() const override {
-        return (uint32_t*)0x74D904;  // Needs verification
+        static uint32_t dummyColor = 0;  // MBAC - return dummy until verified
+        return &dummyColor;
     }
     
     uint8_t* getP1RandomColorAddr() const override {
@@ -475,23 +479,27 @@ public:
     }
     
     uint32_t* getP2SelectorModeAddr() const override {
-        return (uint32_t*)0x74D910;  // Needs verification
+        static uint32_t dummySelector = 0;  // MBAC - return dummy until verified
+        return &dummySelector;
     }
     
     uint32_t* getP2CharaSelectorAddr() const override {
-        return (uint32_t*)0x74D91C;  // Needs verification
+        static uint32_t dummyCharaSelector = 0;  // MBAC - return dummy until verified
+        return &dummyCharaSelector;
     }
     
     uint32_t* getP2CharacterAddr() const override {
-        return (uint32_t*)0x74D920;  // Needs verification
+        return (uint32_t*)0x882874;  // ✅ VERIFIED: P2 character select (CSS)
     }
     
     uint32_t* getP2MoonSelectorAddr() const override {
-        return (uint32_t*)0x74D924;  // NOT USED - MBAC has no moon styles
+        static uint32_t dummyMoon = 0;  // MBAC has no moon styles - return dummy
+        return &dummyMoon;
     }
     
     uint32_t* getP2ColorSelectorAddr() const override {
-        return (uint32_t*)0x74D928;  // Needs verification
+        static uint32_t dummyColor = 0;  // MBAC - return dummy until verified
+        return &dummyColor;
     }
     
     uint8_t* getP2RandomColorAddr() const override {

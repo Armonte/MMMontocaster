@@ -40,7 +40,8 @@ void initImGui( IDirect3DDevice9 *device );
 
 void InitializeDirectX ( IDirect3DDevice9 *device )
 {
-    LOG ( "🎨 InitializeDirectX called! shouldInit=%d, device=%p", shouldInitDirectX, device );
+    // Suppress spammy DirectX logs
+    // LOG ( "🎨 InitializeDirectX called! shouldInit=%d, device=%p", shouldInitDirectX, device );
     
     if ( ! shouldInitDirectX )
         return;

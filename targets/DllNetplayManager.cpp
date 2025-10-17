@@ -249,6 +249,10 @@ uint16_t NetplayManager::getAutoCharaSelectInput ( uint8_t player )
 uint16_t NetplayManager::getCharaSelectInput ( uint8_t player )
 {
     uint16_t input = getRawInput ( player );
+    
+    static int logCount = 0;
+    if ( logCount++ < 20 && input != 0 )
+        LOG ( "🎮 getCharaSelectInput: player=%d, rawInput=0x%04X", player, input );
 
     // Prevent hitting Confirm until 150f after beginning of CharaSelect, this is to workaround the moon selector desync
     if ( config.mode.isOnline() && getFrame() < 150 )
@@ -434,13 +438,13 @@ uint16_t NetplayManager::getInGameInput ( uint8_t player )
             {
                 * ( player == 1 ? g_gameConfig.getP1XPositionAddr() : g_gameConfig.getP2XPositionAddr() ) = -45056;
                 * ( player == 1 ? g_gameConfig.getP2XPositionAddr() : g_gameConfig.getP1XPositionAddr() ) = -61440;
-                *CC_CAMERA_X_ADDR = -26624;
+                *g_gameConfig.getCameraXAddr() = -26624;
             }
             else if ( _trainingResetType == 1 )
             {
                 * ( player == 1 ? g_gameConfig.getP1XPositionAddr() : g_gameConfig.getP2XPositionAddr() ) = 45056;
                 * ( player == 1 ? g_gameConfig.getP2XPositionAddr() : g_gameConfig.getP1XPositionAddr() ) = 61440;
-                *CC_CAMERA_X_ADDR = 26624;
+                *g_gameConfig.getCameraXAddr() = 26624;
             }
             else if ( _trainingResetType == 2 )
             {
@@ -818,22 +822,27 @@ void NetplayManager::setState ( NetplayState state )
         // Entering Loading
         if ( state == NetplayState::Loading )
         {
+            LOG ( "🎮 [ENTER_LOADING] Step 1: Setting spectate start index..." );
             _spectateStartIndex = getIndex();
 
+            LOG ( "🎮 [ENTER_LOADING] Step 2: Calculating newStartIndex..." );
             const uint32_t newStartIndex = min ( getBufferedPreserveStartIndex(), getIndex() );
 
             if ( newStartIndex > _startIndex )
             {
+                LOG ( "🎮 [ENTER_LOADING] Step 3: Cleaning old inputs (offset=%u)...", newStartIndex - _startIndex );
                 const size_t offset = newStartIndex - _startIndex;
 
                 _inputs[0].eraseIndexOlderThan ( offset );
                 _inputs[1].eraseIndexOlderThan ( offset );
 
+                LOG ( "🎮 [ENTER_LOADING] Step 4: Cleaning RNG states..." );
                 if ( offset >= _rngStates.size() )
                     _rngStates.clear();
                 else
                     _rngStates.erase ( _rngStates.begin(), _rngStates.begin() + offset );
 
+                LOG ( "🎮 [ENTER_LOADING] Step 5: Cleaning retry menu indices..." );
                 if ( offset >= _retryMenuIndicies.size() )
                     _retryMenuIndicies.clear();
                 else
@@ -842,20 +851,33 @@ void NetplayManager::setState ( NetplayState state )
                 _startIndex = newStartIndex;
             }
 
+            LOG ( "🎮 [ENTER_LOADING] Step 6: Resetting retry menu indices..." );
             _localRetryMenuIndex = -1;
             _remoteRetryMenuIndex = -1;
+            LOG ( "🎮 [ENTER_LOADING] ✅ Loading state entry complete!" );
         }
 
         // Entering Game
         if ( state == NetplayState::InGame )
         {
+            LOG ( "🎮 [ENTER_INGAME] inGameIndexes set, preparing RNG state..." );
             inGameIndexes[ getIndex() - _startIndex ] = true;
-            RngState *rngState = new RngState ( 0 );
-            rngState->rngState0 = *CC_RNG_STATE0_ADDR;
-            rngState->rngState1 = *CC_RNG_STATE1_ADDR;
-            rngState->rngState2 = *CC_RNG_STATE2_ADDR;
-            copy ( CC_RNG_STATE3_ADDR, CC_RNG_STATE3_ADDR + g_gameConfig.getRngState3Size(), rngState->rngState3.begin() );
-            _roundRngStates.push_back(rngState);
+            
+            // MBAC: Skip RNG for offline - addresses need verification
+            // RNG only needed for online rollback sync
+            if ( !GameConfigInstance::isMBAC() )
+            {
+                RngState *rngState = new RngState ( 0 );
+                rngState->rngState0 = *g_gameConfig.getRngState0Addr();
+                rngState->rngState1 = *g_gameConfig.getRngState1Addr();
+                rngState->rngState2 = *g_gameConfig.getRngState2Addr();
+                copy ( g_gameConfig.getRngState3Addr(), g_gameConfig.getRngState3Addr() + g_gameConfig.getRngState3Size(), rngState->rngState3.begin() );
+                _roundRngStates.push_back(rngState);
+            }
+            else
+            {
+                LOG ( "⚠️ [MBAC] Skipping RNG state read (addresses not verified for MBAC)" );
+            }
         }
 
         // Entering RetryMenu

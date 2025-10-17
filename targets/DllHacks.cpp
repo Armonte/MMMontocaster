@@ -229,7 +229,7 @@ MH_WINAPI_HOOK ( LRESULT, CALLBACK, WindowProc, HWND hwnd, UINT msg, WPARAM wPar
 }
 
 
-static pWindowProc WindowProc = ( pWindowProc ) CC_WINDOW_PROC_ADDR;
+static pWindowProc WindowProc = ( pWindowProc ) g_gameConfig.getWindowProcAddr();
 
 static HDEVNOTIFY notifyHandle = 0;
 
@@ -299,10 +299,9 @@ void initializePostLoad()
             else
                 LOG ( "✅ [DIRECTX] DirectX hooks installed successfully!" );
             
-            // Enable frame rate control for MBAC
-            // We've disabled MBAC's limiter and will use DirectX-based timing
+            // Enable frame rate control for MBAC (with detailed logging)
             DllFrameRate::enable();
-            LOG ( "✅ [FRAMERATE] Enabled DllFrameRate (MBAC's limiter disabled)" );
+            LOG ( "✅ [FRAMERATE] DllFrameRate::enable() completed for MBAC" );
         }
         else if ( !windowHandle )
         {
@@ -354,7 +353,9 @@ void initializePostLoad()
 
     // Apparently this needs to be applied AFTER the game loads
     // TODO: Make toggle
-    DllFrameRate::enable();
+    if ( !GameConfigInstance::isMBAC() ) {
+        DllFrameRate::enable();
+    }
 
     // Hook the game's DirectX calls
     string err;
@@ -410,8 +411,8 @@ InitialGameState::InitialGameState ( IndexedFrame indexedFrame, uint8_t netplayS
     , netplayState ( netplayState )
     , isTraining ( isTraining )
 {
-    chara[0] = ( uint8_t ) * CC_P1_CHARACTER_ADDR;
-    chara[1] = ( uint8_t ) * CC_P2_CHARACTER_ADDR;
+    chara[0] = ( uint8_t ) * g_gameConfig.getP1CharacterAddr();
+    chara[1] = ( uint8_t ) * g_gameConfig.getP2CharacterAddr();
 
     moon[0] = ( uint8_t ) * g_gameConfig.getP1MoonSelectorAddr();
     moon[1] = ( uint8_t ) * g_gameConfig.getP2MoonSelectorAddr();
@@ -426,10 +427,10 @@ SyncHash::SyncHash ( IndexedFrame indexedFrame )
 
     char data [ sizeof ( uint32_t ) * 3 + g_gameConfig.getRngState3Size() ];
 
-    memcpy ( &data[0], CC_RNG_STATE0_ADDR, sizeof ( uint32_t ) );
-    memcpy ( &data[4], CC_RNG_STATE1_ADDR, sizeof ( uint32_t ) );
-    memcpy ( &data[8], CC_RNG_STATE2_ADDR, sizeof ( uint32_t ) );
-    memcpy ( &data[12], CC_RNG_STATE3_ADDR, g_gameConfig.getRngState3Size() );
+    memcpy ( &data[0], g_gameConfig.getRngState0Addr(), sizeof ( uint32_t ) );
+    memcpy ( &data[4], g_gameConfig.getRngState1Addr(), sizeof ( uint32_t ) );
+    memcpy ( &data[8], g_gameConfig.getRngState2Addr(), sizeof ( uint32_t ) );
+    memcpy ( &data[12], g_gameConfig.getRngState3Addr(), g_gameConfig.getRngState3Size() );
 
     getMD5 ( data, sizeof ( data ), hash );
 
@@ -437,31 +438,31 @@ SyncHash::SyncHash ( IndexedFrame indexedFrame )
     {
         memset ( &chara[0], 0, sizeof ( CharaHash ) );
         memset ( &chara[1], 0, sizeof ( CharaHash ) );
-        chara[0].chara = ( uint16_t ) * CC_P1_CHARACTER_ADDR;
+        chara[0].chara = ( uint16_t ) * g_gameConfig.getP1CharacterAddr();
         chara[0].moon  = ( uint16_t ) * g_gameConfig.getP1MoonSelectorAddr();
-        chara[1].chara = ( uint16_t ) * CC_P2_CHARACTER_ADDR;
+        chara[1].chara = ( uint16_t ) * g_gameConfig.getP2CharacterAddr();
         chara[1].moon  = ( uint16_t ) * g_gameConfig.getP2MoonSelectorAddr();
         return;
     }
 
-    roundTimer = *CC_ROUND_TIMER_ADDR;
-    realTimer = *CC_REAL_TIMER_ADDR;
-    cameraX = *CC_CAMERA_X_ADDR;
-    cameraY = *CC_CAMERA_Y_ADDR;
+    roundTimer = *g_gameConfig.getRoundTimerAddr();
+    realTimer = *g_gameConfig.getRealTimerAddr();
+    cameraX = *g_gameConfig.getCameraXAddr();
+    cameraY = *g_gameConfig.getCameraYAddr();
 
 #define SAVE_CHARA(N)                                                                           \
-    chara[N-1].seq          = *CC_P ## N ## _SEQUENCE_ADDR;                                     \
-    chara[N-1].seqState     = *CC_P ## N ## _SEQ_STATE_ADDR;                                    \
-    chara[N-1].health       = *CC_P ## N ## _HEALTH_ADDR;                                       \
-    chara[N-1].redHealth    = *CC_P ## N ## _RED_HEALTH_ADDR;                                   \
-    chara[N-1].meter        = *CC_P ## N ## _METER_ADDR;                                        \
-    chara[N-1].heat         = *CC_P ## N ## _HEAT_ADDR;                                         \
-    chara[N-1].guardBar     = ( *CC_INTRO_STATE_ADDR ? 0 : *CC_P ## N ## _GUARD_BAR_ADDR );     \
-    chara[N-1].guardQuality = *CC_P ## N ## _GUARD_QUALITY_ADDR;                                \
-    chara[N-1].x            = *CC_P ## N ## _X_POSITION_ADDR;                                   \
-    chara[N-1].y            = *CC_P ## N ## _Y_POSITION_ADDR;                                   \
-    chara[N-1].chara = ( uint16_t ) * CC_P ## N ## _CHARACTER_ADDR;                             \
-    chara[N-1].moon  = ( uint16_t ) * CC_P ## N ## _MOON_SELECTOR_ADDR;
+    chara[N-1].seq          = *g_gameConfig.getP##N##SequenceAddr();                            \
+    chara[N-1].seqState     = *g_gameConfig.getP##N##SeqStateAddr();                            \
+    chara[N-1].health       = *g_gameConfig.getP##N##HealthAddr();                              \
+    chara[N-1].redHealth    = *g_gameConfig.getP##N##RedHealthAddr();                           \
+    chara[N-1].meter        = *g_gameConfig.getP##N##MeterAddr();                               \
+    chara[N-1].heat         = *g_gameConfig.getP##N##HeatAddr();                                \
+    chara[N-1].guardBar     = ( *g_gameConfig.getIntroStateAddr() ? 0 : *g_gameConfig.getP##N##GuardBarAddr() ); \
+    chara[N-1].guardQuality = *g_gameConfig.getP##N##GuardQualityAddr();                        \
+    chara[N-1].x            = *g_gameConfig.getP##N##XPositionAddr();                           \
+    chara[N-1].y            = *g_gameConfig.getP##N##YPositionAddr();                           \
+    chara[N-1].chara = ( uint16_t ) * g_gameConfig.getP##N##CharacterAddr();                    \
+    chara[N-1].moon  = ( uint16_t ) * g_gameConfig.getP##N##MoonSelectorAddr();
 
     SAVE_CHARA ( 1 )
     SAVE_CHARA ( 2 )
