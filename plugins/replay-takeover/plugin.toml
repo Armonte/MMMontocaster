@@ -1,0 +1,16 @@
+name = "Replay Takeover"
+id = "replay-takeover"
+version = "1.0.0"
+description = "Replays with countdown takeover and rewind controls."
+api = "0.1.0"
+enabled = true
+
+[entry]
+library = "replay_takeover.dll"
+symbol = "PluginEntry"
+
+[hooks]
+frame = true
+render = ["hud-overlay"]
+input = true
+replay = ["mode-change", "on-frame"]

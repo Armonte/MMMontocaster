@@ -18,12 +18,16 @@
 #include "DllRollbackManager.hpp"
 #include "DllTrialManager.hpp"
 #include "ExternalIpAddress.hpp"
+#include "PluginHost/PluginHost.hpp"
+#include "PluginHost/DetourManager.hpp"
 
 #include <windows.h>
 
 #include <vector>
 #include <memory>
+#include <filesystem>
 #include <algorithm>
+#include <cstdint>
 
 using namespace std;
 
@@ -81,6 +85,7 @@ static ENUM ( AppState, Uninitialized, Polling, Stopping, Deinitialized ) appSta
 // Main application instance
 struct DllMain;
 static shared_ptr<DllMain> mainApp;
+static std::uint64_t mainFrameCallbackHandle = 0;
 
 // Mutex for deinitialize()
 static Mutex deinitMutex;
@@ -1899,8 +1904,8 @@ struct DllMain
                     // Manually control intro state
                     WRITE_ASM_HACK ( AsmHacks::hijackIntroState );
 
-                    // Disable stage animations (TODO)
-                    *CC_STAGE_ANIMATION_OFF_ADDR = 1;
+                    // TODO: Implement game settings manager (settings.dat) similar to `concerto` before re-enabling this override.
+                    // *CC_STAGE_ANIMATION_OFF_ADDR = 1;
                 }
 
                 if ( netMan.autoReplaySave )
@@ -2076,6 +2081,21 @@ private:
 static void initializeDllMain()
 {
     mainApp.reset ( new DllMain() );
+
+    auto& detour = cccaster::plugin::DetourManager::instance();
+    if ( mainFrameCallbackHandle != 0 )
+    {
+        detour.remove_callback ( mainFrameCallbackHandle );
+    }
+    mainFrameCallbackHandle = detour.add_frame_callback (
+        cccaster::plugin::DetourPoint::FramePost,
+        cccaster::plugin::CallbackPriority::SystemHigh,
+        [] ( const cccaster::plugin::FrameContext& ) {
+            if ( mainApp )
+            {
+                mainApp->callback();
+            }
+        } );
 }
 
 static void deinitialize()
@@ -2087,6 +2107,12 @@ static void deinitialize()
 
     mainApp.reset();
 
+    cccaster::plugin::PluginHost::instance().shutdown();
+    if ( mainFrameCallbackHandle != 0 )
+    {
+        cccaster::plugin::DetourManager::instance().remove_callback ( mainFrameCallbackHandle );
+        mainFrameCallbackHandle = 0;
+    }
     EventManager::get().release();
     TimerManager::get().deinitialize();
     SocketManager::get().deinitialize();
@@ -2115,6 +2141,13 @@ extern "C" BOOL APIENTRY DllMain ( HMODULE, DWORD reason, LPVOID )
 
             LOG ( "DLL_PROCESS_ATTACH" );
             LOG ( "gameDir='%s'", ProcessManager::gameDir );
+            std::filesystem::path pluginRoot;
+            if (!ProcessManager::gameDir.empty())
+                pluginRoot = std::filesystem::u8path(ProcessManager::gameDir);
+            else
+                pluginRoot = std::filesystem::current_path();
+            pluginRoot /= "plugins";
+            cccaster::plugin::PluginHost::instance().set_plugin_root(pluginRoot);
 
             // We want the DLL to be able to rebind any previously bound ports
             Socket::forceReusePort ( true );
@@ -2202,6 +2235,7 @@ extern "C" void callback()
             TimerManager::get().initialize();
             ControllerManager::get().windowHandle = DllHacks::windowHandle;
             ControllerManager::get().initialize ( 0 );
+            cccaster::plugin::PluginHost::instance().initialize();
 
             // Start polling now
             EventManager::get().startPolling();
@@ -2210,7 +2244,16 @@ extern "C" void callback()
 
         ASSERT ( mainApp.get() != 0 );
 
-        mainApp->callback();
+        cccaster::plugin::FrameContext frameContext{};
+        if ( mainApp )
+        {
+            frameContext.frame_number = mainApp->netMan.getIndexedFrame().value;
+            frameContext.delta_seconds = 1.0 / 60.0;
+            frameContext.is_training = mainApp->netMan.config.mode.isTraining();
+        }
+        auto& detourManager = cccaster::plugin::DetourManager::instance();
+        detourManager.invoke_frame ( cccaster::plugin::DetourPoint::FramePre, frameContext );
+        detourManager.invoke_frame ( cccaster::plugin::DetourPoint::FramePost, frameContext );
     }
     catch ( const Exception& exc )
     {
