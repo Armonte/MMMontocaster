@@ -2251,6 +2251,7 @@ extern "C" void callback()
             frameContext.delta_seconds = 1.0 / 60.0;
             frameContext.is_training = mainApp->netMan.config.mode.isTraining();
         }
+        cccaster::plugin::PluginHost::instance().poll_frame_services();
         auto& detourManager = cccaster::plugin::DetourManager::instance();
         detourManager.invoke_frame ( cccaster::plugin::DetourPoint::FramePre, frameContext );
         detourManager.invoke_frame ( cccaster::plugin::DetourPoint::FramePost, frameContext );

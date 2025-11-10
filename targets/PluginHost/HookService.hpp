@@ -14,6 +14,7 @@ namespace cccaster::plugin {
 struct PluginContext {
     std::string id;
     std::vector<std::uint64_t> registered_handles;
+    std::vector<std::uint64_t> registered_input_handles;
 };
 
 class HookService {
@@ -25,6 +26,8 @@ public:
 
     void set_current_plugin(PluginContext* context);
     void clear_current_plugin();
+
+    static PluginContext* current_plugin();
 
     void unregister_all(PluginContext& context);
 

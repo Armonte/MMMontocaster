@@ -21,6 +21,7 @@ constexpr int kMaxCountdownAmount = 999;
 constexpr int kMinCountdownSpeedFrames = 1;
 constexpr int kMinRewindSeconds = 1;
 constexpr int kRewindSampleIntervalFrames = 2; // 60 fps / 2 = 30 samples per second
+constexpr std::uint32_t kOverlayToggleVirtualKey = 0x79; // VK_F10
 
 enum class RunState {
     Idle,
@@ -115,6 +116,29 @@ public:
             }
         }
 
+        if (host_->hooks->register_render) {
+            PluginHookResult hook_result = host_->hooks->register_render(
+                RENDER_LAYER_OVERLAY,
+                &ReplayTakeoverPlugin::render_callback,
+                this,
+                &render_handle_);
+            if (hook_result != PLUGIN_HOOK_OK) {
+                log_warn("Failed to register render callback");
+            }
+        }
+
+        if (host_->input && host_->input->register_hotkey) {
+            overlay_hotkey_handle_.opaque = 0;
+            if (host_->input->register_hotkey(kOverlayToggleVirtualKey,
+                                              &ReplayTakeoverPlugin::overlay_hotkey_callback,
+                                              this,
+                                              &overlay_hotkey_handle_)) {
+                log_info("Overlay toggle hotkey registered (F10)");
+            } else {
+                log_warn("Failed to register overlay toggle hotkey");
+            }
+        }
+
         return PLUGIN_RESULT_OK;
     }
 
@@ -132,6 +156,20 @@ public:
         }
     }
 
+    static void render_callback(const ::RenderContext* ctx, void* user_data) {
+        auto* plugin = static_cast<ReplayTakeoverPlugin*>(user_data);
+        if (plugin && ctx) {
+            plugin->on_render(*ctx);
+        }
+    }
+
+    static void overlay_hotkey_callback(const KeyState* state, void* user_data) {
+        auto* plugin = static_cast<ReplayTakeoverPlugin*>(user_data);
+        if (plugin && state && state->pressed) {
+            plugin->toggle_overlay();
+        }
+    }
+
 private:
     void on_frame() {
         if (!game_state_) {
@@ -142,7 +180,7 @@ private:
 
         if (!is_replay_active_) {
             state_machine_.set_rewind(false);
-            overlay_.draw(state_machine_.state());
+            last_inputs_accept_ = false;
             return;
         }
 
@@ -152,7 +190,7 @@ private:
                 log_warn("Failed to read replay timer");
                 timer_read_failure_logged_ = true;
             }
-            overlay_.draw(state_machine_.state());
+            last_inputs_accept_ = false;
             return;
         }
         if (timer_read_failure_logged_) {
@@ -178,6 +216,7 @@ private:
         }
 
         bool accept_inputs = inputs_ok && should_accept_inputs();
+        last_inputs_accept_ = accept_inputs;
 
         if (accept_inputs) {
             fn1_.update(inputs.fn1);
@@ -206,7 +245,6 @@ private:
         }
 
         update_texts();
-        overlay_.draw(state_machine_.state());
     }
 
     void on_replay_event(const ::ReplayContext& ctx) {
@@ -312,6 +350,16 @@ private:
         return accept;
     }
 
+    void on_render(const ::RenderContext& context) {
+        overlay_.render(context,
+                        state_machine_.state(),
+                        is_replay_active_,
+                        sanitized_countdown_amount_,
+                        player_to_takeover_,
+                        last_inputs_accept_,
+                        overlay_settings_);
+    }
+
     void handle_state_transitions() {
         if ((run_state_ == RunState::Playing || run_state_ == RunState::Paused) && fn1_.pressed_edge) {
             if (run_state_ == RunState::Playing) {
@@ -373,6 +421,7 @@ private:
         game_state_->untakeover();
         set_text("", "");
         update_texts();
+        last_inputs_accept_ = false;
     }
 
     void reset_round() {
@@ -536,10 +585,15 @@ private:
         config_.countdown_amount = std::clamp(config_.countdown_amount, 0, kMaxCountdownAmount);
         config_.countdown_speed_ms = std::max(config_.countdown_speed_ms, kMinCountdownSpeedFrames);
         config_.rewind_seconds = std::max(config_.rewind_seconds, kMinRewindSeconds);
+        config_.overlay_anchor = std::clamp(config_.overlay_anchor, 0, 1);
         sanitized_countdown_amount_ = config_.countdown_amount;
         countdown_speed_frames_ = config_.countdown_speed_ms;
         rewind_capacity_ = config_.rewind_seconds * (60 / kRewindSampleIntervalFrames);
         rewind_capacity_ = std::max(rewind_capacity_, 1);
+
+        overlay_settings_.enabled = config_.overlay_enabled;
+        overlay_settings_.show_help = config_.overlay_show_help;
+        overlay_settings_.anchor = config_.overlay_anchor;
     }
 
     void allocate_rewind_buffer() {
@@ -560,6 +614,15 @@ private:
         b_.reset();
         c_.reset();
         d_.reset();
+    }
+
+    void toggle_overlay() {
+        overlay_settings_.enabled = !overlay_settings_.enabled;
+        config_.overlay_enabled = overlay_settings_.enabled;
+        if (config_service_) {
+            config_service_->save(config_);
+        }
+        log_info(overlay_settings_.enabled ? "Overlay enabled" : "Overlay disabled");
     }
 
     std::string format_player_countdown() const {
@@ -621,6 +684,7 @@ private:
 
     ReplayStateMachine state_machine_{config_};
     OverlayRenderer overlay_{};
+    OverlayRenderer::Settings overlay_settings_{};
 
     std::unique_ptr<replay_takeover::MemoryAccessor> memory_;
     std::unique_ptr<replay_takeover::GameStateMemory> game_state_;
@@ -654,6 +718,8 @@ private:
 
     PluginCallbackHandle frame_handle_{};
     PluginCallbackHandle replay_handle_{};
+    PluginCallbackHandle render_handle_{};
+    InputHotkeyHandle overlay_hotkey_handle_{};
 
     bool replay_flag_failure_logged_ = false;
     bool input_read_failure_logged_ = false;
@@ -662,6 +728,7 @@ private:
     bool timer_read_failure_logged_ = false;
     bool input_blocked_logged_ = false;
     bool rewind_empty_logged_ = false;
+    bool last_inputs_accept_ = false;
     std::uint8_t last_intro_state_ = 0;
     std::uint8_t last_outro_state_ = 0;
 };

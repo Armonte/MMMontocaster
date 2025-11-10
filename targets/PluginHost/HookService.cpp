@@ -36,6 +36,10 @@ void HookService::clear_current_plugin() {
     current_plugin_ = nullptr;
 }
 
+PluginContext* HookService::current_plugin() {
+    return current_plugin_;
+}
+
 void HookService::unregister_all(PluginContext& context) {
     std::vector<std::uint64_t> handles_copy;
     {
@@ -94,8 +98,37 @@ PluginHookResult HookService::register_input(InputPriority, PluginInputCallback,
     return PLUGIN_HOOK_UNSUPPORTED;
 }
 
-PluginHookResult HookService::register_render(RenderLayer, PluginRenderCallback, void*, PluginCallbackHandle*) {
-    return PLUGIN_HOOK_UNSUPPORTED;
+PluginHookResult HookService::register_render(RenderLayer layer, PluginRenderCallback cb, void* user, PluginCallbackHandle* out_handle) {
+    if (!instance_ || !cb || !out_handle) {
+        return PLUGIN_HOOK_INVALID_ARGUMENT;
+    }
+
+    if (!current_plugin_) {
+        return PLUGIN_HOOK_ERROR;
+    }
+
+    if (layer != RENDER_LAYER_OVERLAY) {
+        return PLUGIN_HOOK_UNSUPPORTED;
+    }
+
+    auto trampoline = [cb, user](const RenderContext& host_context) {
+        ::RenderContext api_context{};
+        api_context.device = host_context.device;
+        api_context.viewport_width = host_context.viewport_width;
+        api_context.viewport_height = host_context.viewport_height;
+
+        cb(&api_context, user);
+    };
+
+    std::uint64_t detour_handle = DetourManager::instance().add_render_callback(CallbackPriority::Normal, std::move(trampoline));
+
+    std::lock_guard<std::mutex> lock(instance_->mutex_);
+    const std::uint64_t handle_id = instance_->next_handle_++;
+    instance_->records_.emplace(handle_id, CallbackRecord{ handle_id, detour_handle, current_plugin_, DetourPoint::RenderOverlay });
+    current_plugin_->registered_handles.push_back(handle_id);
+
+    out_handle->opaque = handle_id;
+    return PLUGIN_HOOK_OK;
 }
 
 PluginHookResult HookService::register_menu(PluginMenuCallback, void*, PluginCallbackHandle*) {

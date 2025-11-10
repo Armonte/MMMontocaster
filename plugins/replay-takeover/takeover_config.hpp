@@ -2,12 +2,15 @@
 
 #include <string>
 
-#include "cccaster/api.h"
+#include "../../pluginsdk/include/cccaster/api.h"
 
 struct TakeoverConfig {
     int countdown_amount = 3;
     int countdown_speed_ms = 30;
     int rewind_seconds = 30;
+    bool overlay_enabled = true;
+    bool overlay_show_help = true;
+    int overlay_anchor = 0; // 0 = top-left, 1 = top-right
 };
 
 class TakeoverConfigService {

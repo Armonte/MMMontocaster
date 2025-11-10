@@ -49,12 +49,6 @@ bool memory_write_impl(void* address, const void* data, size_t size) {
 #endif
 }
 
-SchedulerHandle scheduler_schedule_stub(uint32_t, void (*)(void*), void*) {
-    return 0;
-}
-
-void scheduler_cancel_stub(SchedulerHandle) {}
-
 } // namespace
 
 PluginHost& PluginHost::instance() {
@@ -67,8 +61,6 @@ PluginHost::PluginHost()
     config_service_.set_storage_path(plugin_root_ / L"plugin-config.json");
     memory_api_.read = &memory_read_impl;
     memory_api_.write = &memory_write_impl;
-    scheduler_api_stub_.schedule_once = &scheduler_schedule_stub;
-    scheduler_api_stub_.cancel = &scheduler_cancel_stub;
 }
 
 PluginHost::~PluginHost() = default;
@@ -95,6 +87,9 @@ void PluginHost::initialize() {
     if (!registry_) {
         registry_ = std::make_unique<PluginRegistry>();
     }
+
+    input_service_.initialize();
+    scheduler_service_.initialize();
 
     discover_plugins();
 
@@ -131,6 +126,7 @@ void PluginHost::shutdown() {
     if (registry_) {
         for (auto& instance : registry_->instances()) {
             hook_service_.unregister_all(instance.hook_context);
+            input_service_.unregister_all(instance.hook_context);
 
             if (instance.module_handle != nullptr) {
                 FreeLibrary(reinterpret_cast<HMODULE>(instance.module_handle));
@@ -146,6 +142,9 @@ void PluginHost::shutdown() {
         registry_->clear();
     }
 
+    input_service_.shutdown();
+    scheduler_service_.shutdown();
+
     initialized_ = false;
 }
 
@@ -155,6 +154,10 @@ bool PluginHost::is_initialized() const {
 
 const fs::path& PluginHost::plugin_root() const {
     return plugin_root_;
+}
+
+void PluginHost::poll_frame_services() {
+    input_service_.poll();
 }
 
 void PluginHost::discover_plugins() {
@@ -206,7 +209,8 @@ void PluginHost::build_host_api(PluginInstance& instance) {
     instance.host_api.diagnostics = diagnostics_service_.api();
     instance.host_api.memory = &memory_api_;
     instance.host_api.ui = ui_service_.api();
-    instance.host_api.scheduler = &scheduler_api_stub_;
+    instance.host_api.scheduler = scheduler_service_.api();
+    instance.host_api.input = input_service_.api();
 
     instance.registration.id = instance.manifest.id.c_str();
     instance.registration.name = instance.manifest.name.c_str();
@@ -248,6 +252,7 @@ void PluginHost::invoke_plugin_entry(PluginInstance& instance) {
 
     if (result != PLUGIN_RESULT_OK) {
         hook_service_.unregister_all(instance.hook_context);
+        input_service_.unregister_all(instance.hook_context);
         LOG ( "[PluginHost] Plugin '%s' returned error code %d", instance.manifest.id.c_str(), static_cast<int>(result) );
     }
 #endif

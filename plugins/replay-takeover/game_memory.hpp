@@ -5,7 +5,7 @@
 #include <initializer_list>
 #include <span>
 
-#include "cccaster/api.h"
+#include "../../pluginsdk/include/cccaster/api.h"
 
 namespace replay_takeover {
 

@@ -2,8 +2,19 @@
 
 #include <string>
 #include <array>
-#include <d3dx9.h>
 #include <cstdint>
+
+#if defined(__MINGW32__) || defined(_MSC_VER)
+#include <d3dx9.h>
+#else
+struct tagRECT {
+    long left;
+    long top;
+    long right;
+    long bottom;
+};
+using RECT = tagRECT;
+#endif
 
 
 #define DEFAULT_MESSAGE_TIMEOUT ( 3000 )

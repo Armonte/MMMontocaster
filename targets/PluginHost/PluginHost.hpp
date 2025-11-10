@@ -10,6 +10,8 @@
 #include "Services/ConfigService.hpp"
 #include "Services/DiagnosticsService.hpp"
 #include "Services/UiService.hpp"
+#include "Services/SchedulerService.hpp"
+#include "Services/InputService.hpp"
 
 namespace cccaster::plugin {
 
@@ -24,6 +26,8 @@ public:
 
     bool is_initialized() const;
     const std::filesystem::path& plugin_root() const;
+
+    void poll_frame_services();
 
 private:
     PluginHost();
@@ -46,7 +50,8 @@ private:
     UiService ui_service_;
     HookService hook_service_;
     MemoryAPI memory_api_{};
-    SchedulerAPI scheduler_api_stub_{};
+    SchedulerService scheduler_service_;
+    InputService input_service_;
 };
 
 } // namespace cccaster::plugin
