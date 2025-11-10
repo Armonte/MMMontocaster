@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "name": "Vanilla HUD",
+    "author": "Hantei-chan",
+    "description": "Baseline MBAACC HUD colors."
+  },
+  "colors": {
+    "meter": {
+      "lower": { "argb": "#ffc80000", "overlay_speed": 1 },
+      "middle": { "argb": "#ffc8c800", "overlay_speed": 2 },
+      "upper": { "argb": "#ff00c800", "overlay_speed": 3 },
+      "unlimited": { "argb": "#ff3296ff", "overlay_speed": 2 },
+      "heat": { "argb": "#ff5a5ae6", "overlay_speed": -2 },
+      "max": { "argb": "#fffaa000", "overlay_speed": -2 },
+      "blood_heat": { "argb": "#ffb4b4b4", "overlay_speed": -2 },
+      "break": { "argb": "#ffbe64c8", "overlay_speed": -2, "overlay_locked": true }
+    },
+    "guard": {
+      "quality_high": "#ff00bee6",
+      "quality_low": "#ffe60a0a",
+      "break": "#ff767676"
+    }
+  },
+  "layout": {
+    "moon_icons": {
+      "visible": true,
+      "pivot": "center",
+      "offset": [0, 0]
+    },
+    "portraits": []
+  },
+  "assets": {
+    "gauge": {
+      "pack": "0003.p",
+      "folder": "/GRP/gauge_AA"
+    }
+  }
+}
+

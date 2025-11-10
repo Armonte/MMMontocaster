@@ -119,6 +119,13 @@ void PresentFrameBegin ( IDirect3DDevice9 *device )
             loggedDeviceLost = true;
         }
 
+        // Invalidate device objects when device is lost or needs reset (e.g., fullscreen transition)
+        // This ensures proper cleanup before Reset() is called
+        if ( initalizedDirectX )
+        {
+            InvalidateDeviceObjects();
+        }
+
         cccaster::plugin::DetourManager::instance().set_render_callbacks_enabled ( false );
         return;
     }

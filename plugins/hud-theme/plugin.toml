@@ -1,0 +1,14 @@
+name = "HUD Theme"
+id = "hud-theme"
+version = "0.1.0"
+description = "Applies HUD themes exported from Hantei-chan."
+api = "0.1.0"
+enabled = true
+
+[entry]
+library = "hud_theme.dll"
+symbol = "PluginEntry"
+
+[hooks]
+frame = true
+

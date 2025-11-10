@@ -158,6 +158,13 @@ void OverlayRenderer::render(const RenderContext& context,
                                                 inputs_available,
                                                 settings.show_help);
 
+    // Calculate number of lines for proper height calculation
+    const int line_count = static_cast<int>(std::count(text.begin(), text.end(), '\n')) + 1;
+    const int font_height = 18;  // Match the font creation height
+    // Use larger line spacing to account for descenders - font height + spacing + descender space
+    const int line_spacing = font_height + 4;  // 4px extra per line for descenders and spacing
+    const int total_text_height = line_count * line_spacing;
+    
     RECT calc_rect{};
     calc_rect.left = 0;
     calc_rect.top = 0;
@@ -171,15 +178,15 @@ void OverlayRenderer::render(const RenderContext& context,
                      D3DCOLOR_ARGB(0, 0, 0, 0));
 
     const LONG text_width = calc_rect.right - calc_rect.left;
-    const LONG text_height = calc_rect.bottom - calc_rect.top;
     const int margin = 18;
-    // Add padding for descenders (characters like g, j, p, q, y that extend below baseline)
-    // Use ~25% of font height to ensure descenders aren't clipped
-    const int descender_padding = std::max(4, static_cast<int>(text_height * 0.25f));
+    // Add extra padding at bottom for descenders - ensure we have plenty of space
+    const int descender_padding = 12;
 
     RECT text_rect{};
     text_rect.top = margin;
-    text_rect.bottom = text_rect.top + text_height + descender_padding;
+    // Use calculated line-based height plus extra descender padding
+    // This ensures descenders (g, j, p, q, y) and other characters aren't clipped
+    text_rect.bottom = text_rect.top + total_text_height + descender_padding;
 
     if (settings.anchor == 0) {
         text_rect.left = margin;

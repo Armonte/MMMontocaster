@@ -41,9 +41,13 @@ BASE_CPP_SRCS = $(wildcard netplay/*.cpp) $(LIB_CPP_SRCS) $(wildcard sequences/*
 MAIN_CPP_SRCS = $(wildcard targets/Main*.cpp tests/*.cpp targets/PluginHost/*.cpp targets/PluginHost/Services/*.cpp) $(BASE_CPP_SRCS)
 DLL_CPP_SRCS = $(wildcard targets/Dll*.cpp) $(wildcard targets/PluginHost/*.cpp) $(wildcard targets/PluginHost/Services/*.cpp) $(filter-out lib/ConsoleUi.cpp,$(BASE_CPP_SRCS))
 
-PLUGIN_CPP_SRCS = $(wildcard plugins/replay-takeover/*.cpp)
-PLUGIN_OBJECTS = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS:.cpp=.o))
-PLUGIN_DLL = plugins/replay-takeover/replay_takeover.dll
+PLUGIN_CPP_SRCS_REPLAY = $(wildcard plugins/replay-takeover/*.cpp)
+PLUGIN_CPP_SRCS_HUD = $(wildcard plugins/hud-theme/*.cpp)
+PLUGIN_OBJECTS_REPLAY = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_REPLAY:.cpp=.o))
+PLUGIN_OBJECTS_HUD = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_HUD:.cpp=.o))
+PLUGIN_DLL_REPLAY = plugins/replay-takeover/replay_takeover.dll
+PLUGIN_DLL_HUD = plugins/hud-theme/hud_theme.dll
+PLUGIN_DLLS = $(PLUGIN_DLL_REPLAY) $(PLUGIN_DLL_HUD)
 
 NON_GEN_SRCS = \
 	$(wildcard netplay/*.cpp tools/*.cpp targets/*.cpp targets/PluginHost/*.cpp targets/PluginHost/Services/*.cpp lib/*.cpp tests/*.cpp sequences/*.cpp)
@@ -172,13 +176,19 @@ $(BINARY): $(addprefix $(BUILD_PREFIX)/,$(MAIN_OBJECTS)) res/icon.res
 	$(CHMOD_X)
 	@echo
 
-$(PLUGIN_DLL): $(PLUGIN_OBJECTS)
+$(PLUGIN_DLL_REPLAY): $(PLUGIN_OBJECTS_REPLAY)
 	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
 	@echo
 	$(STRIP) $@
 	@echo
 
-$(FOLDER)/$(DLL): $(addprefix $(BUILD_PREFIX)/,$(DLL_OBJECTS)) res/rollback.o targets/CallDraw.s $(PLUGIN_DLL) | $(FOLDER)
+$(PLUGIN_DLL_HUD): $(PLUGIN_OBJECTS_HUD)
+	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
+	@echo
+	$(STRIP) $@
+	@echo
+
+$(FOLDER)/$(DLL): $(addprefix $(BUILD_PREFIX)/,$(DLL_OBJECTS)) res/rollback.o targets/CallDraw.s $(PLUGIN_DLLS) | $(FOLDER)
 	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
 	@echo
 	$(STRIP) $@
