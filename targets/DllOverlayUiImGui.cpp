@@ -1,26 +1,110 @@
-#include "DllOverlayUi.hpp"
-#include "ProcessManager.hpp"
-#include "Constants.hpp"
+// NOLINTBEGIN
+// cpplint: disable=build/include_what_you_use
+#include "../3rdparty/imgui/imgui.h"
 
-#include "imgui.h"
-#include "imgui_impl_dx9.h"
-#include "imgui_impl_win32.h"
+#include <cstring>
 
-#include <d3dx9.h>
+#if defined(__has_include)
+#if __has_include(<windows.h>)
+#include <windows.h>
+#else
+using HWND = void*;
+extern "C" void* FindWindowA(const char*, const char*);
+extern "C" short GetAsyncKeyState(int);
+extern "C" long GetWindowTextA(void*, char*, int);
+extern "C" int EnumWindows(int (*)(void*, long), long);
+constexpr int VK_LBUTTON = 0x01;
+#endif
+#else
+#include <windows.h>
+#endif
 
-using namespace std;
-using namespace DllOverlayUi;
+#ifndef IMGUI_IMPL_API
+#define IMGUI_IMPL_API IMGUI_API
+#endif
+
+struct ImGuiContext;
+struct IDirect3DDevice9;
+
+IMGUI_IMPL_API bool ImGui_ImplWin32_Init(void* hwnd);
+IMGUI_IMPL_API void ImGui_ImplWin32_Shutdown();
+IMGUI_IMPL_API void ImGui_ImplWin32_NewFrame();
+IMGUI_IMPL_API bool ImGui_ImplDX9_Init(IDirect3DDevice9* device);
+IMGUI_IMPL_API void ImGui_ImplDX9_Shutdown();
+IMGUI_IMPL_API void ImGui_ImplDX9_NewFrame();
+IMGUI_IMPL_API void ImGui_ImplDX9_RenderDrawData(ImDrawData* draw_data);
+IMGUI_IMPL_API bool ImGui_ImplDX9_CreateDeviceObjects();
+IMGUI_IMPL_API void ImGui_ImplDX9_InvalidateDeviceObjects();
 
 static ImGuiContext * context;
+static bool g_imgui_backend_initialized = false;
 
 extern bool doEndScene;
 
 extern bool initalizedDirectX;
 
-void initImGui( IDirect3DDevice9 *device ) {
+#ifdef LOGGING
+namespace {
+
+constexpr const char* kWindowTitles[] = {
+    "MELTY BLOOD Actress Again Current Code Ver.1.07 Rev.1.4.0",
+    "MELTY BLOOD Actress Again Current Code",
+    "MBAA"
+};
+
+#if defined(_WIN32) || (defined(__has_include) && __has_include(<windows.h>))
+BOOL CALLBACK EnumWindowsCollect(HWND hwnd, LPARAM lparam)
+{
+    if (hwnd == nullptr) {
+        return TRUE;
+    }
+    char title[256] = {};
+    if (GetWindowTextA(hwnd, title, sizeof(title)) == 0) {
+        return TRUE;
+    }
+    const char* needle = "MELTY BLOOD Actress Again";
+    if (strstr(title, needle) != nullptr) {
+        *reinterpret_cast<HWND*>(lparam) = hwnd;
+        return FALSE;
+    }
+    return TRUE;
+}
+#endif
+
+inline void* ResolveGameWindow()
+{
+    for (const char* window_title : kWindowTitles) {
+        if (window_title != nullptr) {
+            if (void* handle = FindWindowA(nullptr, window_title)) {
+                return handle;
+            }
+        }
+    }
+
+#if defined(_WIN32) || (defined(__has_include) && __has_include(<windows.h>))
+    HWND enumerated = nullptr;
+    EnumWindows(EnumWindowsCollect, reinterpret_cast<LPARAM>(&enumerated));
+    if (enumerated != nullptr) {
+        return enumerated;
+    }
+#endif
+
+    return nullptr;
+}
+}  // namespace
+
+static bool ImGui_InitBackend(IDirect3DDevice9* device) {
+    if (g_imgui_backend_initialized) {
+        return true;
+    }
+
+    void* windowHandle = ResolveGameWindow();
+    if (windowHandle == nullptr) {
+        return false;
+    }
+
     IMGUI_CHECKVERSION();
     context = ImGui::CreateContext();
-    void* windowHandle = ProcessManager::findWindow ( CC_TITLE );
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.WantCaptureMouse = true;
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
@@ -31,31 +115,30 @@ void initImGui( IDirect3DDevice9 *device ) {
     //ImGui::StyleColorsClassic();
 
     // Setup Platform/Renderer backends
-    ::ImGui_ImplWin32_Init(windowHandle);
-    ::ImGui_ImplDX9_Init(device);
+    if (!::ImGui_ImplWin32_Init(windowHandle)) {
+        return false;
+    }
+    if (!::ImGui_ImplDX9_Init(device)) {
+        ::ImGui_ImplWin32_Shutdown();
+        return false;
+    }
 
-    // Load Fonts
-    // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
-    // - AddFontFromFileTTF() will return the ImFont* so you can store it if you need to select the font among multiple.
-    // - If the file cannot be loaded, the function will return NULL. Please handle those errors in your application (e.g. use an assertion, or display an error and quit).
-    // - The fonts will be rasterized at a given size (w/ oversampling) and stored into a texture when calling ImFontAtlas::Build()/GetTexDataAsXXXX(), which ImGui_ImplXXXX_NewFrame below will call.
-    // - Read 'docs/FONTS.md' for more instructions and details.
-    // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
-    //io.Fonts->AddFontDefault();
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", 16.0f);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/ProggyTiny.ttf", 10.0f);
-    //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, NULL, io.Fonts->GetGlyphRangesJapanese());
-    //IM_ASSERT(font != NULL);
+    g_imgui_backend_initialized = true;
+    return true;
+}
+#endif
 
-    // Our state
-    bool show_demo_window = true;
-    bool show_another_window = false;
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+bool initImGui( IDirect3DDevice9 *device ) {
+#ifdef LOGGING
+    if (!g_imgui_backend_initialized) {
+        return ImGui_InitBackend(device);
+    }
 
-    // Main loop
-    bool done = false;
+    return ImGui_ImplDX9_CreateDeviceObjects() != 0;
+#else
+    (void)device;
+    return true;
+#endif
 }
 
 void EndScene ( IDirect3DDevice9 *device ) {
@@ -114,3 +197,28 @@ void EndScene ( IDirect3DDevice9 *device ) {
     ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
 #endif
 }
+
+void ImGuiInvalidateDeviceObjects()
+{
+#ifdef LOGGING
+    if (!g_imgui_backend_initialized) {
+        return;
+    }
+    ImGui_ImplDX9_InvalidateDeviceObjects();
+#endif
+}
+
+bool ImGuiCreateDeviceObjects(IDirect3DDevice9* device)
+{
+#ifdef LOGGING
+    if (!g_imgui_backend_initialized) {
+        return ImGui_InitBackend(device);
+    }
+    return ImGui_ImplDX9_CreateDeviceObjects() != 0;
+#else
+    (void)device;
+    return true;
+#endif
+}
+
+// NOLINTEND

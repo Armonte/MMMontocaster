@@ -19,10 +19,15 @@ void DetourManager::reset() {
     for (auto& list : frame_callbacks_) {
         list.clear();
     }
-    render_callbacks_.clear();
+    for (auto& list : render_callbacks_) {
+        list.clear();
+    }
     handle_index_.clear();
     next_handle_ = 1;
     render_callbacks_enabled_ = true;
+    for (auto& enabled : render_layer_enabled_) {
+        enabled = true;
+    }
 }
 
 std::uint64_t DetourManager::add_frame_callback(DetourPoint point, CallbackPriority priority, FrameCallback callback) {
@@ -32,17 +37,18 @@ std::uint64_t DetourManager::add_frame_callback(DetourPoint point, CallbackPrior
     const std::uint64_t id = next_handle_++;
     list.push_back(FrameCallbackEntry{ id, priority, std::move(callback) });
     sort_callbacks(list);
-    handle_index_[id] = HandleMetadata{ point };
+    handle_index_[id] = HandleMetadata{ point, RenderLayerId::Overlay, false };
     return id;
 }
 
-std::uint64_t DetourManager::add_render_callback(CallbackPriority priority, RenderCallback callback) {
+std::uint64_t DetourManager::add_render_callback(RenderLayerId layer, CallbackPriority priority, RenderCallback callback) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     const std::uint64_t id = next_handle_++;
-    render_callbacks_.push_back(RenderCallbackEntry{ id, priority, std::move(callback) });
-    sort_callbacks(render_callbacks_);
-    handle_index_[id] = HandleMetadata{ DetourPoint::RenderOverlay };
+    RenderCallbackList& list = render_list_for_layer(layer);
+    list.push_back(RenderCallbackEntry{ id, priority, std::move(callback) });
+    sort_callbacks(list);
+    handle_index_[id] = HandleMetadata{ DetourPoint::RenderOverlay, layer, true };
     return id;
 }
 
@@ -63,10 +69,15 @@ void DetourManager::remove_callback(std::uint64_t handle) {
             break;
         }
         case DetourPoint::RenderOverlay: {
-            render_callbacks_.erase(std::remove_if(render_callbacks_.begin(), render_callbacks_.end(),
-                                                   [handle](const RenderCallbackEntry& entry) {
-                                                       return entry.id == handle;
-                                                   }), render_callbacks_.end());
+            if (it->second.is_render) {
+                RenderCallbackList& list = render_list_for_layer(it->second.layer);
+                list.erase(std::remove_if(list.begin(),
+                                          list.end(),
+                                          [handle](const RenderCallbackEntry& entry) {
+                                              return entry.id == handle;
+                                          }),
+                           list.end());
+            }
             break;
         }
         default:
@@ -99,14 +110,18 @@ void DetourManager::invoke_frame(DetourPoint point, const FrameContext& context)
     }
 }
 
-void DetourManager::invoke_render(const RenderContext& context) {
+void DetourManager::invoke_render(RenderLayerId layer, const RenderContext& context) {
     RenderCallbackList callbacks_copy;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!render_callbacks_enabled_) {
             return;
         }
-        callbacks_copy = render_callbacks_;
+        const auto index = render_layer_index(layer);
+        if (!render_layer_enabled_[index]) {
+            return;
+        }
+        callbacks_copy = render_callbacks_[index];
     }
 
     static bool logged_null_device = false;
@@ -149,9 +164,11 @@ void DetourManager::invoke_render(const RenderContext& context) {
 }
 
 void DetourManager::set_render_callbacks_enabled(bool enabled) {
-    if (!enabled && render_callbacks_enabled()) {
+    if (!enabled && render_callbacks_enabled_) {
         RenderContext null_context{};
-        invoke_render(null_context);
+        for (std::size_t i = 0; i < render_callbacks_.size(); ++i) {
+            invoke_render(static_cast<RenderLayerId>(i), null_context);
+        }
     }
 
     bool changed = false;
@@ -160,6 +177,11 @@ void DetourManager::set_render_callbacks_enabled(bool enabled) {
         if (render_callbacks_enabled_ != enabled) {
             render_callbacks_enabled_ = enabled;
             changed = true;
+            if (enabled) {
+                for (auto& layer_enabled : render_layer_enabled_) {
+                    layer_enabled = true;
+                }
+            }
         }
     }
 
@@ -168,9 +190,36 @@ void DetourManager::set_render_callbacks_enabled(bool enabled) {
     }
 }
 
-bool DetourManager::render_callbacks_enabled() {
+void DetourManager::set_render_callbacks_enabled(RenderLayerId layer, bool enabled) {
+    const auto index = render_layer_index(layer);
+
+    if (!enabled) {
+        RenderContext null_context{};
+        invoke_render(layer, null_context);
+    }
+
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (render_layer_enabled_[index] != enabled) {
+            render_layer_enabled_[index] = enabled;
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        LOG ( "DetourManager: render callbacks %s for layer %u", enabled ? "enabled" : "disabled", static_cast<unsigned>(index) );
+    }
+}
+
+bool DetourManager::render_callbacks_enabled() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return render_callbacks_enabled_;
+}
+
+bool DetourManager::render_callbacks_enabled(RenderLayerId layer) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return render_layer_enabled_[render_layer_index(layer)];
 }
 
 DetourManager::FrameCallbackList& DetourManager::frame_list_for_point(DetourPoint point) {
@@ -193,6 +242,18 @@ const DetourManager::FrameCallbackList& DetourManager::frame_list_for_point(Deto
         default:
             return frame_callbacks_[0];
     }
+}
+
+DetourManager::RenderCallbackList& DetourManager::render_list_for_layer(RenderLayerId layer) {
+    return render_callbacks_[render_layer_index(layer)];
+}
+
+const DetourManager::RenderCallbackList& DetourManager::render_list_for_layer(RenderLayerId layer) const {
+    return render_callbacks_[render_layer_index(layer)];
+}
+
+std::size_t DetourManager::render_layer_index(RenderLayerId layer) const {
+    return static_cast<std::size_t>(layer);
 }
 
 void DetourManager::sort_callbacks(FrameCallbackList& list) {

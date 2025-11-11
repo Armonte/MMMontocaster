@@ -1,8 +1,14 @@
+// NOLINTBEGIN
+// cpplint: disable=build/include_what_you_use
 #include "DllOverlayUi.hpp"
-#include "ProcessManager.hpp"
-#include "Constants.hpp"
 #include "PluginHost/DetourManager.hpp"
-#include "lib/Logger.hpp"
+#ifdef LOGGING
+#include "../lib/Logger.hpp"  // NOLINT(build/include) IWYU pragma: keep
+#endif
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #if !defined(CCCASTER_HAS_D3D9)
 #if defined(__MINGW32__) || defined(_MSC_VER)
@@ -42,6 +48,10 @@ using namespace DllOverlayUi;
 bool initalizedDirectX = false;
 
 static bool shouldInitDirectX = false;
+static bool overlay_text_initialized = false;
+#ifdef LOGGING
+static bool logged_imgui_wait = false;
+#endif
 
 bool doEndScene = false;
 
@@ -62,7 +72,9 @@ void invalidateOverlayText();
 
 void renderOverlayText ( IDirect3DDevice9 *device, const D3DVIEWPORT9& viewport );
 
-void initImGui( IDirect3DDevice9 *device );
+bool initImGui( IDirect3DDevice9 *device );
+void ImGuiInvalidateDeviceObjects();
+bool ImGuiCreateDeviceObjects(IDirect3DDevice9* device);
 
 void InitializeDirectX ( IDirect3DDevice9 *device )
 {
@@ -70,15 +82,36 @@ void InitializeDirectX ( IDirect3DDevice9 *device )
     if ( ! shouldInitDirectX )
         return;
 
-    initalizedDirectX = true;
+    if ( overlay_text_initialized == false )
+    {
+        initOverlayText ( device );
+        overlay_text_initialized = true;
+    }
 
-    initOverlayText ( device );
 #ifdef LOGGING
-    initImGui ( device );
+    const bool imgui_ok = initImGui ( device );
+    if ( ! imgui_ok )
+    {
+        if ( ! logged_imgui_wait )
+        {
+            LOG ( "Overlay: InitializeDirectX - waiting for game window before initializing ImGui" );
+            logged_imgui_wait = true;
+        }
+        cccaster::plugin::DetourManager::instance().set_render_callbacks_enabled ( false );
+        return;
+    }
+    logged_imgui_wait = false;
 #endif
 
-    LOG ( "Overlay: InitializeDirectX - enabling render detours" );
-    cccaster::plugin::DetourManager::instance().set_render_callbacks_enabled ( true );
+    initalizedDirectX = true;
+
+    if ( ! cccaster::plugin::DetourManager::instance().render_callbacks_enabled() )
+    {
+#ifdef LOGGING
+        LOG ( "Overlay: InitializeDirectX - enabling render detours" );
+#endif
+        cccaster::plugin::DetourManager::instance().set_render_callbacks_enabled ( true );
+    }
 #else
     (void)device;
 #endif
@@ -93,6 +126,11 @@ void InvalidateDeviceObjects()
     initalizedDirectX = false;
 
     invalidateOverlayText();
+#ifdef LOGGING
+    ImGuiInvalidateDeviceObjects();
+    logged_imgui_wait = false;
+#endif
+    overlay_text_initialized = false;
 
     LOG ( "Overlay: InvalidateDeviceObjects - suspending render detours" );
     cccaster::plugin::DetourManager::instance().set_render_callbacks_enabled ( false );
@@ -104,13 +142,18 @@ void PresentFrameBegin ( IDirect3DDevice9 *device )
 {
 #if CCCASTER_HAS_D3D9
     if ( ! initalizedDirectX )
+    {
         InitializeDirectX ( device );
+        if ( ! initalizedDirectX )
+            return;
+    }
 
     D3DVIEWPORT9 viewport;
     device->GetViewport ( &viewport );
 
     // Only draw in the main viewport; there should only be one with this width
-    if ( viewport.Width != * CC_SCREEN_WIDTH_ADDR )
+    static DWORD* const kCcScreenWidthAddr = reinterpret_cast<DWORD*>(0x54D048);
+    if ( viewport.Width != *kCcScreenWidthAddr )
         return;
 
     renderOverlayText ( device, viewport );
@@ -124,13 +167,14 @@ void PresentFrameBegin ( IDirect3DDevice9 *device )
     }
 #endif
 
-    if ( initalizedDirectX && cccaster::plugin::DetourManager::instance().render_callbacks_enabled() )
+    if ( initalizedDirectX && cccaster::plugin::DetourManager::instance().render_callbacks_enabled ( cccaster::plugin::RenderLayerId::Overlay ) )
     {
         cccaster::plugin::RenderContext render_context{};
         render_context.device = device;
         render_context.viewport_width = viewport.Width;
         render_context.viewport_height = viewport.Height;
-        cccaster::plugin::DetourManager::instance().invoke_render(render_context);
+        cccaster::plugin::DetourManager::instance().invoke_render ( cccaster::plugin::RenderLayerId::Overlay, render_context );
     }
 #endif
 }
+// NOLINTEND

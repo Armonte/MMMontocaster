@@ -87,7 +87,12 @@ PluginHookResult HookService::register_frame(FrameStage stage, PluginFrameCallba
 
     std::lock_guard<std::mutex> lock(instance_->mutex_);
     const std::uint64_t handle_id = instance_->next_handle_++;
-    instance_->records_.emplace(handle_id, CallbackRecord{ handle_id, detour_handle, current_plugin_, point });
+    instance_->records_.emplace(handle_id, CallbackRecord{ handle_id,
+                                                           detour_handle,
+                                                           current_plugin_,
+                                                           point,
+                                                           RenderLayerId::Overlay,
+                                                           false });
     current_plugin_->registered_handles.push_back(handle_id);
 
     out_handle->opaque = handle_id;
@@ -98,7 +103,7 @@ PluginHookResult HookService::register_input(InputPriority, PluginInputCallback,
     return PLUGIN_HOOK_UNSUPPORTED;
 }
 
-PluginHookResult HookService::register_render(RenderLayer layer, PluginRenderCallback cb, void* user, PluginCallbackHandle* out_handle) {
+PluginHookResult HookService::register_render(::RenderLayer layer, PluginRenderCallback cb, void* user, PluginCallbackHandle* out_handle) {
     if (!instance_ || !cb || !out_handle) {
         return PLUGIN_HOOK_INVALID_ARGUMENT;
     }
@@ -107,8 +112,16 @@ PluginHookResult HookService::register_render(RenderLayer layer, PluginRenderCal
         return PLUGIN_HOOK_ERROR;
     }
 
-    if (layer != RENDER_LAYER_OVERLAY) {
-        return PLUGIN_HOOK_UNSUPPORTED;
+    RenderLayerId host_layer;
+    switch (layer) {
+        case RENDER_LAYER_OVERLAY:
+            host_layer = RenderLayerId::Overlay;
+            break;
+        case RENDER_LAYER_MENU:
+            host_layer = RenderLayerId::Menu;
+            break;
+        default:
+            return PLUGIN_HOOK_UNSUPPORTED;
     }
 
     auto trampoline = [cb, user](const RenderContext& host_context) {
@@ -120,11 +133,16 @@ PluginHookResult HookService::register_render(RenderLayer layer, PluginRenderCal
         cb(&api_context, user);
     };
 
-    std::uint64_t detour_handle = DetourManager::instance().add_render_callback(CallbackPriority::Normal, std::move(trampoline));
+    std::uint64_t detour_handle = DetourManager::instance().add_render_callback(host_layer, CallbackPriority::Normal, std::move(trampoline));
 
     std::lock_guard<std::mutex> lock(instance_->mutex_);
     const std::uint64_t handle_id = instance_->next_handle_++;
-    instance_->records_.emplace(handle_id, CallbackRecord{ handle_id, detour_handle, current_plugin_, DetourPoint::RenderOverlay });
+    instance_->records_.emplace(handle_id, CallbackRecord{ handle_id,
+                                                           detour_handle,
+                                                           current_plugin_,
+                                                           DetourPoint::RenderOverlay,
+                                                           host_layer,
+                                                           true });
     current_plugin_->registered_handles.push_back(handle_id);
 
     out_handle->opaque = handle_id;

@@ -37,6 +37,8 @@ private:
         std::uint64_t detour_handle;
         PluginContext* owner;
         DetourPoint point;
+        RenderLayerId render_layer;
+        bool is_render;
     };
 
     static HookService* instance_;
@@ -44,7 +46,7 @@ private:
 
     static PluginHookResult register_frame(FrameStage stage, PluginFrameCallback cb, void* user, PluginCallbackHandle* out_handle);
     static PluginHookResult register_input(InputPriority priority, PluginInputCallback cb, void* user, PluginCallbackHandle* out_handle);
-    static PluginHookResult register_render(RenderLayer layer, PluginRenderCallback cb, void* user, PluginCallbackHandle* out_handle);
+    static PluginHookResult register_render(::RenderLayer layer, PluginRenderCallback cb, void* user, PluginCallbackHandle* out_handle);
     static PluginHookResult register_menu(PluginMenuCallback cb, void* user, PluginCallbackHandle* out_handle);
     static PluginHookResult register_replay(ReplayEventMask mask, PluginReplayCallback cb, void* user, PluginCallbackHandle* out_handle);
     static void unregister(PluginCallbackHandle handle);
