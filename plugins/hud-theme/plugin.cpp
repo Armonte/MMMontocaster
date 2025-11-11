@@ -1,3 +1,4 @@
+#include "guard_detour.hpp"
 #include "hud_addresses.hpp"
 #include "memory_accessor.hpp"
 #include "theme_loader.hpp"
@@ -38,6 +39,14 @@ public:
 
         theme_path_ = plugin_directory_ / "hud_theme.json";
         memory_accessor_ = std::make_unique<MemoryAccessor>(host_);
+
+        // Initialize guard color detour
+        guard_detour_ = std::make_unique<GuardColorDetour>();
+        if (memory_accessor_ && memory_accessor_->valid()) {
+            if (!guard_detour_->initialize(host_->memory, memory_accessor_->base())) {
+                log_warn("Failed to initialize guard color detour; guard colors may not work correctly.");
+            }
+        }
 
         if (!load_theme(false)) {
             log_warn("Delaying HUD theme application until next frame.");
@@ -251,18 +260,30 @@ private:
             }
         }
 
-        const struct GuardWrite {
-            const char* label;
-            std::uint32_t offset;
-            std::uint32_t argb;
-        } guard_writes[] = {
-            {"guard.quality_high", addresses::kGuardQualityHigh, theme_.guard.quality_high},
-            {"guard.quality_low", addresses::kGuardQualityLow, theme_.guard.quality_low},
-            {"guard.break", addresses::kGuardBreak, theme_.guard.breaker}};
-
-        for (const auto& write : guard_writes) {
-            if (!write_color(write.label, write.offset, write.argb)) {
+        // Apply guard colors via detour (safer than direct patching)
+        if (guard_detour_ && guard_detour_->is_initialized()) {
+            if (!guard_detour_->update_colors(
+                    theme_.guard.quality_high,
+                    theme_.guard.quality_low,
+                    theme_.guard.breaker)) {
+                log_warn("Failed to update guard colors via detour.");
                 success = false;
+            }
+        } else {
+            // Fallback to direct patching if detour not available
+            const struct GuardWrite {
+                const char* label;
+                std::uint32_t offset;
+                std::uint32_t argb;
+            } guard_writes[] = {
+                {"guard.quality_high", addresses::kGuardQualityHigh, theme_.guard.quality_high},
+                {"guard.quality_low", addresses::kGuardQualityLow, theme_.guard.quality_low},
+                {"guard.break", addresses::kGuardBreak, theme_.guard.breaker}};
+
+            for (const auto& write : guard_writes) {
+                if (!write_color(write.label, write.offset, write.argb)) {
+                    success = false;
+                }
             }
         }
 
@@ -308,6 +329,7 @@ private:
     ThemeLoader loader_{};
     HudTheme theme_ = make_default_theme();
     std::unique_ptr<MemoryAccessor> memory_accessor_;
+    std::unique_ptr<GuardColorDetour> guard_detour_;
 
     PluginCallbackHandle frame_handle_{};
     bool theme_applied_ = false;
