@@ -89,7 +89,10 @@ void PluginHost::set_plugin_root(std::filesystem::path root) {
 }
 
 void PluginHost::initialize() {
+    LOG ( "[PluginHost] initialize() called" );
+    
     if (initialized_) {
+        LOG ( "[PluginHost] Already initialized, skipping" );
         return;
     }
 
@@ -97,6 +100,7 @@ void PluginHost::initialize() {
         registry_ = std::make_unique<PluginRegistry>();
     }
 
+    LOG ( "[PluginHost] Initializing services..." );
     input_service_.initialize();
     scheduler_service_.initialize();
 
@@ -104,9 +108,12 @@ void PluginHost::initialize() {
     // ReplayService factory - only works in DLL builds where ReplayService.cpp is linked
     // Will be nullptr in main executable builds (linker will fail to resolve symbols)
     replay_service_opaque_ = create_replay_service();
+    LOG ( "[PluginHost] ReplayService created: %p", replay_service_opaque_ );
 #endif
 
+    LOG ( "[PluginHost] Discovering plugins from: %s", plugin_root_.string().c_str() );
     discover_plugins();
+    LOG ( "[PluginHost] Discovered %zu plugins", registry_ ? registry_->instances().size() : 0 );
 
 #ifdef _WIN32
     for (auto& instance : registry_->instances()) {
@@ -116,16 +123,48 @@ void PluginHost::initialize() {
             continue;
         }
 
+        LOG ( "[PluginHost] Loading plugin '%s' from '%s'", instance.manifest.id.c_str(), instance.library_path.string().c_str() );
+
+        // Suppress error dialogs during LoadLibrary
+        UINT old_error_mode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+        
         HMODULE handle = LoadLibraryW(instance.library_path.wstring().c_str());
+        
+        // Restore error mode
+        SetErrorMode(old_error_mode);
+
         if (handle == nullptr) {
-            LOG ( "[PluginHost] Failed to load '%s'", instance.library_path.string().c_str() );
+            DWORD error = GetLastError();
+            LOG ( "[PluginHost] Failed to load '%s': error %lu (0x%08lX)", 
+                  instance.library_path.string().c_str(), error, error );
             instance.last_result = PLUGIN_RESULT_ERROR;
             continue;
         }
 
+        LOG ( "[PluginHost] Successfully loaded plugin '%s'", instance.manifest.id.c_str() );
+
         instance.module_handle = reinterpret_cast<void*>(handle);
-        build_host_api(instance);
-        invoke_plugin_entry(instance);
+        
+        try {
+            build_host_api(instance);
+            invoke_plugin_entry(instance);
+        } catch (const std::exception& ex) {
+            LOG ( "[PluginHost] Exception during plugin initialization for '%s': %s", 
+                  instance.manifest.id.c_str(), ex.what() );
+            instance.last_result = PLUGIN_RESULT_ERROR;
+            hook_service_.unregister_all(instance.hook_context);
+            input_service_.unregister_all(instance.hook_context);
+            FreeLibrary(handle);
+            instance.module_handle = nullptr;
+        } catch (...) {
+            LOG ( "[PluginHost] Unknown exception during plugin initialization for '%s'", 
+                  instance.manifest.id.c_str() );
+            instance.last_result = PLUGIN_RESULT_ERROR;
+            hook_service_.unregister_all(instance.hook_context);
+            input_service_.unregister_all(instance.hook_context);
+            FreeLibrary(handle);
+            instance.module_handle = nullptr;
+        }
     }
 #endif
 
@@ -192,39 +231,87 @@ void PluginHost::discover_plugins() {
     }
 
     registry_->clear();
+    LOG ( "[PluginHost] Starting plugin discovery in: %s", plugin_root_.string().c_str() );
 
     std::error_code ec;
+    LOG ( "[PluginHost] Checking if plugin root exists..." );
     if (!fs::exists(plugin_root_, ec)) {
+        LOG ( "[PluginHost] Plugin root does not exist, creating: %s", plugin_root_.string().c_str() );
         fs::create_directories(plugin_root_, ec);
+        if (ec) {
+            LOG ( "[PluginHost] Failed to create plugin root: %s", ec.message().c_str() );
+        }
         return;
     }
+    LOG ( "[PluginHost] Plugin root exists, iterating directories..." );
 
-    for (const auto& dir_entry : fs::directory_iterator(plugin_root_, ec)) {
-        if (ec) {
-            break;
+    int dir_count = 0;
+    try {
+        for (const auto& dir_entry : fs::directory_iterator(plugin_root_, ec)) {
+            if (ec) {
+                LOG ( "[PluginHost] Directory iteration error: %s", ec.message().c_str() );
+                break;
+            }
+
+            dir_count++;
+            LOG ( "[PluginHost] Found directory entry: %s", dir_entry.path().string().c_str() );
+
+            if (!dir_entry.is_directory()) {
+                LOG ( "[PluginHost] Skipping non-directory: %s", dir_entry.path().string().c_str() );
+                continue;
+            }
+
+            const auto manifest_path = dir_entry.path() / "plugin.toml";
+            LOG ( "[PluginHost] Checking manifest: %s", manifest_path.string().c_str() );
+            
+            if (!fs::exists(manifest_path)) {
+                LOG ( "[PluginHost] Manifest not found, skipping: %s", manifest_path.string().c_str() );
+                continue;
+            }
+
+            LOG ( "[PluginHost] Loading manifest: %s", manifest_path.string().c_str() );
+            PluginManifest manifest{};
+            try {
+                manifest = load_manifest_from_file(manifest_path.wstring());
+                LOG ( "[PluginHost] Manifest loaded successfully, id=%s, enabled=%d", manifest.id.c_str(), manifest.enabled );
+            } catch (const std::exception& ex) {
+                LOG ( "[PluginHost] Exception loading manifest '%s': %s", manifest_path.string().c_str(), ex.what() );
+                continue;
+            } catch (...) {
+                LOG ( "[PluginHost] Unknown exception loading manifest '%s'", manifest_path.string().c_str() );
+                continue;
+            }
+
+            if (!manifest.valid() || !manifest.enabled) {
+                LOG ( "[PluginHost] Manifest invalid or disabled, skipping: id=%s, valid=%d, enabled=%d", 
+                      manifest.id.c_str(), manifest.valid(), manifest.enabled );
+                continue;
+            }
+
+            LOG ( "[PluginHost] Creating plugin instance for: %s", manifest.id.c_str() );
+            PluginInstance instance{};
+            instance.manifest = std::move(manifest);
+            instance.manifest_path = manifest_path;
+            instance.library_path = dir_entry.path() / instance.manifest.library;
+            instance.hook_context.id = instance.manifest.id;
+            LOG ( "[PluginHost] Plugin instance created, library_path=%s", instance.library_path.string().c_str() );
+            try {
+                registry_->add_instance(std::move(instance));
+                LOG ( "[PluginHost] Plugin instance added to registry" );
+            } catch (const std::exception& ex) {
+                LOG ( "[PluginHost] Exception adding instance to registry: %s", ex.what() );
+                // Continue to next plugin instead of crashing
+            } catch (...) {
+                LOG ( "[PluginHost] Unknown exception adding instance to registry" );
+                // Continue to next plugin instead of crashing
+            }
         }
-
-        if (!dir_entry.is_directory()) {
-            continue;
-        }
-
-        const auto manifest_path = dir_entry.path() / "plugin.toml";
-        if (!fs::exists(manifest_path)) {
-            continue;
-        }
-
-        PluginManifest manifest = load_manifest_from_file(manifest_path.wstring());
-        if (!manifest.valid() || !manifest.enabled) {
-            continue;
-        }
-
-        PluginInstance instance{};
-        instance.manifest = std::move(manifest);
-        instance.manifest_path = manifest_path;
-        instance.library_path = dir_entry.path() / instance.manifest.library;
-        instance.hook_context.id = instance.manifest.id;
-        registry_->add_instance(std::move(instance));
+    } catch (const std::exception& ex) {
+        LOG ( "[PluginHost] Exception during directory iteration: %s", ex.what() );
+    } catch (...) {
+        LOG ( "[PluginHost] Unknown exception during directory iteration" );
     }
+    LOG ( "[PluginHost] Plugin discovery complete, processed %d directories", dir_count );
 }
 
 void PluginHost::build_host_api(PluginInstance& instance) {

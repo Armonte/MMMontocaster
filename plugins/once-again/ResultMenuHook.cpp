@@ -1,28 +1,12 @@
-#include "plugin.hpp"
-
-#include "../../pluginsdk/include/cccaster/api.h"
+#include "ResultMenuHook.hpp"
 
 namespace once_again {
 
-// TODO: Implement result menu state monitoring
-// This will track when the result menu appears after a versus match
-// and detect when "Once Again" (menu index 0) is selected
-
-class ResultMenuHook {
-public:
-    ResultMenuHook(const PluginHostAPI* host);
-    ~ResultMenuHook();
-
-    void update();
-
-private:
-    const PluginHostAPI* host_;
-    bool was_result_menu_active_ = false;
-    ResultMenuState last_menu_state_ = RESULT_MENU_STATE_UNKNOWN;
-};
-
 ResultMenuHook::ResultMenuHook(const PluginHostAPI* host)
-    : host_(host) {
+    : host_(host)
+    , was_result_menu_active_(false)
+    , last_menu_state_(RESULT_MENU_STATE_UNKNOWN)
+    , once_again_selected_(false) {
 }
 
 ResultMenuHook::~ResultMenuHook() = default;
@@ -37,15 +21,18 @@ void ResultMenuHook::update() {
 
     // Detect when result menu becomes active
     if (is_active && !was_result_menu_active_) {
-        // Result menu just appeared
-        // TODO: Handle menu appearance
+        // Result menu just appeared - reset state tracking
+        once_again_selected_ = false;
+        last_menu_state_ = RESULT_MENU_STATE_UNKNOWN;
     }
 
     // Detect menu state changes
+    // We check for transition to ONCE_AGAIN state, which indicates the player
+    // has selected the "Once Again" option
     if (is_active && state != last_menu_state_) {
         if (state == RESULT_MENU_STATE_ONCE_AGAIN) {
-            // "Once Again" selected - trigger rematch
-            // TODO: Implement rematch logic
+            // "Once Again" selected - set flag for plugin to handle
+            once_again_selected_ = true;
         }
     }
 

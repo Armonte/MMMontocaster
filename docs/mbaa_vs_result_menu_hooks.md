@@ -14,9 +14,9 @@ void VsResultMenu_Init(CVSResultMenuManager* manager, void* context);
 ```
 
 **Hook Strategy:**
-- **Patch Location:** Entry point or after `skipQuickRetry` check
-- **Goal:** Force `manager->skipQuickRetryGate = 0` for offline versus matches
-- **Pattern:** Inline hook with trampoline (similar to Extended Training Mode)
+- **Patch Location:** Entry stub in `DllAsmHacks::hookVsResultMenuInit`
+- **Goal:** Force `manager->skipQuickRetryGate = 0` for offline versus matches while leaving netplay/story untouched
+- **Implementation:** Inline hook that guards on `gVsResultMenuMode == 0` and `gStoryModeClearFlag == 0`, then falls through to the original via `emitCall(0x481D80)`
 
 **Key Code Flow:**
 1. Loads `"VS RESULT MENU"` data set via `MBAA_ReadDataFile`
@@ -43,9 +43,9 @@ void VsResultMenuManager_Update(CVSResultMenuManager* manager);
 ```
 
 **Hook Strategy:**
-- **Patch Location:** State transition points or tag-to-state mapping
-- **Goal:** Monitor state transitions, potentially intercept `ONCE_AGAIN` selection
-- **Pattern:** Call hook before/after state machine dispatch
+- **Patch Location:** Not yet installed (target for plugin-side monitoring)
+- **Goal:** Provide telemetry for `ONCE_AGAIN` selections once the plugin is active
+- **Status:** Analysis complete; hook will live in plugin layer rather than `DllAsmHacks`
 
 **State Machine Mapping:**
 - `ONCE_AGAIN` → State `0` (via `VsResultMenu_FinalizeSelection`)
@@ -73,9 +73,9 @@ void VsResultMenu_FinalizeSelection(CVSResultMenuManager* manager, const char* t
 ```
 
 **Hook Strategy:**
-- **Patch Location:** Entry point or after tag comparison
+- **Patch Location:** Entry stub in `DllAsmHacks::hookVsResultMenuFinalizeSelection`
 - **Goal:** Intercept `ONCE_AGAIN` selection and trigger replay export
-- **Pattern:** Inline hook with trampoline, call original after custom logic
+- **Implementation:** Parses the incoming `MenuString` SSO payload, calls `netManPtr->exportInputs()` on match, then forwards to `0x482E80` via `emitCall`
 
 **Tag-to-State Mapping:**
 - `"ONCE_AGAIN"` → `gVsResultMenuInputState = 0`
@@ -104,9 +104,9 @@ void BattleScene_ApplyResultSelection(uint32_t inputState);
 ```
 
 **Hook Strategy:**
-- **Patch Location:** Entry point or before scene transition
+- **Patch Location:** Entry stub in `DllAsmHacks::hookBattleSceneApplyResultSelection`
 - **Goal:** Inject replay export before scene `8` (reload versus scene) transition
-- **Pattern:** Call hook before scene transition, preserve original flow
+- **Implementation:** Checks `inputState == 0` and calls `netManPtr->exportInputs()` before chaining to the original `BattleScene_ApplyResultSelection`
 
 **State-to-Scene Mapping:**
 - State `0` (`ONCE_AGAIN`) → Scene `8` (reload versus scene)
@@ -206,19 +206,32 @@ int32_t MBAA_CompareSSOString(const SSOString* a, const SSOString* b);
 
 ## Extended Training Mode Reference Patterns
 
-### Patch Site Pattern (`0x0047d493`, `0x0047db08`)
-
-Extended Training Mode uses inline assembly patches with trampolines:
+### Patch Site Pattern (Implemented in `DllAsmHacks`)
 
 ```cpp
-// Pattern: Jump to hook function, then return to original
-static const AsmList hookVsResultMenuInit = {
+const AsmList hookVsResultMenuInit = {
     { (void*)0x481D80, {
-        0xE8, INLINE_DWORD(rel32(0x481D80, &VsResultMenu_Init_Hook)),
-        0xE9, INLINE_DWORD(rel32(0x481D80 + 5, 0x481D85))  // Jump to original+5
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x481D80, &VsResultMenu_Init_Hook)),
+        0x90
+    } }
+};
+
+const AsmList hookVsResultMenuFinalizeSelection = {
+    { (void*)0x482E80, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x482E80, &VsResultMenu_FinalizeSelection_Hook)),
+        0x90
+    } }
+};
+
+const AsmList hookBattleSceneApplyResultSelection = {
+    { (void*)0x439420, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x439420, &BattleScene_ApplyResultSelection_Hook)),
+        0x90
     } }
 };
 ```
+
+Each hook uses the `emitCall` helper inside the trampoline to return control to the original function after the custom logic runs.
 
 ### Hook Function Pattern
 
@@ -241,16 +254,15 @@ extern "C" void VsResultMenu_Init_Hook(CVSResultMenuManager* manager, void* cont
 ### For Issue #19 Implementation:
 
 1. **Hook `VsResultMenu_Init`** (`0x481D80`)
-   - Force `skipQuickRetryGate = 0` for offline versus
-   - Preserve netplay/story behavior
+   - Force `skipQuickRetryGate = 0` for offline versus (implemented in `VsResultMenu_Init_Hook`)
 
 2. **Hook `VsResultMenu_FinalizeSelection`** (`0x482E80`)
-   - Intercept `ONCE_AGAIN` tag selection
-   - Trigger replay export before state transition
+   - Intercept `ONCE_AGAIN` tag selection and call `NetplayManager::exportInputs`
 
 3. **Hook `BattleScene_ApplyResultSelection`** (`0x439420`)
-   - Inject replay export before scene `8` transition
-   - Ensure win counters persist
+   - Export replays before the rematch scene transition when `gVsResultMenuInputState == 0`
+
+The hooks are registered from `DllMain::initializePreLoad()` using `WRITE_ASM_HACK`.
 
 ### Hook Implementation Pattern:
 
