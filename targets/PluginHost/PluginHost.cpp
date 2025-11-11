@@ -237,6 +237,7 @@ void PluginHost::build_host_api(PluginInstance& instance) {
     instance.host_api.ui = ui_service_.api();
     instance.host_api.scheduler = scheduler_service_.api();
     instance.host_api.input = input_service_.api();
+    instance.host_api.menu = menu_service_.api();
 #ifdef _WIN32
     instance.host_api.replay = get_replay_api();
 #else

@@ -38,16 +38,19 @@ CONTRIB_C_SRCS = $(wildcard 3rdparty/*.c)
 # Main program sources
 LIB_CPP_SRCS = $(wildcard lib/*.cpp)
 BASE_CPP_SRCS = $(wildcard netplay/*.cpp) $(LIB_CPP_SRCS) $(wildcard sequences/*.cpp)
-MAIN_CPP_SRCS = $(wildcard targets/Main*.cpp tests/*.cpp targets/PluginHost/*.cpp $(filter-out targets/PluginHost/Services/ReplayService.cpp targets/PluginHost/Services/ReplayServiceFactory.cpp,$(wildcard targets/PluginHost/Services/*.cpp))) targets/PluginHost/Services/ReplayServiceFactoryStub.cpp $(BASE_CPP_SRCS)
-DLL_CPP_SRCS = $(wildcard targets/Dll*.cpp) $(wildcard targets/PluginHost/*.cpp) $(filter-out targets/PluginHost/Services/ReplayServiceFactoryStub.cpp,$(wildcard targets/PluginHost/Services/*.cpp)) $(filter-out lib/ConsoleUi.cpp,$(BASE_CPP_SRCS))
+MAIN_CPP_SRCS = $(wildcard targets/Main*.cpp tests/*.cpp targets/PluginHost/*.cpp $(filter-out targets/PluginHost/Services/ReplayService.cpp targets/PluginHost/Services/ReplayServiceFactory.cpp targets/PluginHost/Services/MenuService.cpp,$(wildcard targets/PluginHost/Services/*.cpp))) targets/PluginHost/Services/ReplayServiceFactoryStub.cpp targets/PluginHost/Services/MenuServiceStub.cpp $(BASE_CPP_SRCS)
+DLL_CPP_SRCS = $(wildcard targets/Dll*.cpp) $(wildcard targets/PluginHost/*.cpp) $(filter-out targets/PluginHost/Services/ReplayServiceFactoryStub.cpp targets/PluginHost/Services/MenuServiceStub.cpp,$(wildcard targets/PluginHost/Services/*.cpp)) $(filter-out lib/ConsoleUi.cpp,$(BASE_CPP_SRCS))
 
 PLUGIN_CPP_SRCS_REPLAY = $(wildcard plugins/replay-takeover/*.cpp)
 PLUGIN_CPP_SRCS_HUD = $(wildcard plugins/hud-theme/*.cpp)
+PLUGIN_CPP_SRCS_ONCE_AGAIN = $(wildcard plugins/once-again/*.cpp)
 PLUGIN_OBJECTS_REPLAY = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_REPLAY:.cpp=.o))
 PLUGIN_OBJECTS_HUD = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_HUD:.cpp=.o))
+PLUGIN_OBJECTS_ONCE_AGAIN = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_ONCE_AGAIN:.cpp=.o))
 PLUGIN_DLL_REPLAY = plugins/replay-takeover/replay_takeover.dll
 PLUGIN_DLL_HUD = plugins/hud-theme/hud_theme.dll
-PLUGIN_DLLS = $(PLUGIN_DLL_REPLAY) $(PLUGIN_DLL_HUD)
+PLUGIN_DLL_ONCE_AGAIN = plugins/once-again/once_again.dll
+PLUGIN_DLLS = $(PLUGIN_DLL_REPLAY) $(PLUGIN_DLL_HUD) $(PLUGIN_DLL_ONCE_AGAIN)
 
 NON_GEN_SRCS = \
 	$(wildcard netplay/*.cpp tools/*.cpp targets/*.cpp targets/PluginHost/*.cpp targets/PluginHost/Services/*.cpp lib/*.cpp tests/*.cpp sequences/*.cpp)
@@ -183,6 +186,12 @@ $(PLUGIN_DLL_REPLAY): $(PLUGIN_OBJECTS_REPLAY)
 	@echo
 
 $(PLUGIN_DLL_HUD): $(PLUGIN_OBJECTS_HUD)
+	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
+	@echo
+	$(STRIP) $@
+	@echo
+
+$(PLUGIN_DLL_ONCE_AGAIN): $(PLUGIN_OBJECTS_ONCE_AGAIN)
 	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
 	@echo
 	$(STRIP) $@

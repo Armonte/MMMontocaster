@@ -1,0 +1,15 @@
+name = "Once Again"
+id = "once-again"
+version = "1.0.0"
+description = "Instant rematch functionality for versus matches."
+api = "0.1.0"
+enabled = true
+
+[entry]
+library = "once_again.dll"
+symbol = "PluginEntry"
+
+[hooks]
+frame = true
+menu = true
+

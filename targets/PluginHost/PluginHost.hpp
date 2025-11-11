@@ -16,6 +16,7 @@
 #include "Services/UiService.hpp"
 #include "Services/SchedulerService.hpp"
 #include "Services/InputService.hpp"
+#include "Services/MenuService.hpp"
 #ifdef _WIN32
 // ReplayService factory functions - provided by ReplayServiceFactory.cpp (DLL) or ReplayServiceFactoryStub.cpp (main)
 namespace cccaster::plugin {
@@ -64,6 +65,7 @@ private:
     MemoryAPI memory_api_{};
     SchedulerService scheduler_service_;
     InputService input_service_;
+    MenuService menu_service_;
 #ifdef _WIN32
     // ReplayService only available when linking against hook.dll (DLL context)
     // Use void* to avoid requiring complete type in header
