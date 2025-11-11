@@ -1,4 +1,5 @@
 #include "DllOverlayUi.hpp"
+#include "ProcessManager.hpp"
 #include "Constants.hpp"
 #include "PluginHost/DetourManager.hpp"
 #include "lib/Logger.hpp"
@@ -32,9 +33,6 @@ struct D3DVIEWPORT9 {
     float MinZ;
     float MaxZ;
 };
-using HRESULT = long;
-constexpr HRESULT D3DERR_DEVICELOST = static_cast<HRESULT>(0x88760868L);
-constexpr HRESULT D3DERR_DEVICENOTRESET = static_cast<HRESULT>(0x88760869L);
 #endif
 
 using namespace std;
@@ -46,7 +44,6 @@ bool initalizedDirectX = false;
 static bool shouldInitDirectX = false;
 
 bool doEndScene = false;
-static bool loggedDeviceLost = false;
 
 namespace DllOverlayUi
 {
@@ -74,7 +71,6 @@ void InitializeDirectX ( IDirect3DDevice9 *device )
         return;
 
     initalizedDirectX = true;
-    loggedDeviceLost = false;
 
     initOverlayText ( device );
 #ifdef LOGGING
@@ -107,41 +103,8 @@ void InvalidateDeviceObjects()
 void PresentFrameBegin ( IDirect3DDevice9 *device )
 {
 #if CCCASTER_HAS_D3D9
-    if ( device == nullptr )
-        return;
-
-    HRESULT cooperativeLevel = device->TestCooperativeLevel();
-    if ( cooperativeLevel == D3DERR_DEVICELOST || cooperativeLevel == D3DERR_DEVICENOTRESET )
-    {
-        if ( ! loggedDeviceLost )
-        {
-            LOG ( "Overlay: PresentFrameBegin skipping render (device lost, hr=0x%08X)", cooperativeLevel );
-            loggedDeviceLost = true;
-        }
-
-        // Invalidate device objects when device is lost or needs reset (e.g., fullscreen transition)
-        // This ensures proper cleanup before Reset() is called
-        if ( initalizedDirectX )
-        {
-            InvalidateDeviceObjects();
-        }
-
-        cccaster::plugin::DetourManager::instance().set_render_callbacks_enabled ( false );
-        return;
-    }
-
     if ( ! initalizedDirectX )
         InitializeDirectX ( device );
-
-    if ( ! initalizedDirectX )
-        return;
-
-    if ( loggedDeviceLost )
-    {
-        LOG ( "Overlay: PresentFrameBegin device restored, resuming renders" );
-        loggedDeviceLost = false;
-        cccaster::plugin::DetourManager::instance().set_render_callbacks_enabled ( true );
-    }
 
     D3DVIEWPORT9 viewport;
     device->GetViewport ( &viewport );
@@ -161,7 +124,7 @@ void PresentFrameBegin ( IDirect3DDevice9 *device )
     }
 #endif
 
-    if ( cccaster::plugin::DetourManager::instance().render_callbacks_enabled() )
+    if ( initalizedDirectX && cccaster::plugin::DetourManager::instance().render_callbacks_enabled() )
     {
         cccaster::plugin::RenderContext render_context{};
         render_context.device = device;
@@ -169,7 +132,5 @@ void PresentFrameBegin ( IDirect3DDevice9 *device )
         render_context.viewport_height = viewport.Height;
         cccaster::plugin::DetourManager::instance().invoke_render(render_context);
     }
-#else
-    (void)device;
 #endif
 }

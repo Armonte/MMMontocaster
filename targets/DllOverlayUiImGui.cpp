@@ -28,10 +28,6 @@ void initImGui( IDirect3DDevice9 *device ) {
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
-    
-    // Adjust style to prevent text clipping
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.ItemSpacing.y = style.ItemSpacing.y + 1.0f;  // Add extra spacing between items
     //ImGui::StyleColorsClassic();
 
     // Setup Platform/Renderer backends
@@ -45,16 +41,7 @@ void initImGui( IDirect3DDevice9 *device ) {
     // - The fonts will be rasterized at a given size (w/ oversampling) and stored into a texture when calling ImFontAtlas::Build()/GetTexDataAsXXXX(), which ImGui_ImplXXXX_NewFrame below will call.
     // - Read 'docs/FONTS.md' for more instructions and details.
     // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
-    // Enable default font explicitly to ensure proper line height calculation
-    ImFontConfig font_config;
-    font_config.OversampleH = 2;
-    font_config.OversampleV = 2;
-    font_config.GlyphExtraSpacing.x = 0.0f;
-    font_config.GlyphExtraSpacing.y = 2.0f;  // Add extra vertical spacing to prevent clipping (increased from 1.0f)
-    io.Fonts->AddFontDefault(&font_config);
-    
-    // Also set global line spacing multiplier to ensure descenders aren't clipped
-    io.FontGlobalScale = 1.0f;
+    //io.Fonts->AddFontDefault();
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", 16.0f);
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);

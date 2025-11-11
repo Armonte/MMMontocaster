@@ -116,7 +116,21 @@ void OverlayRenderer::render(const RenderContext& context,
     }
 
     auto* device = static_cast<IDirect3DDevice9*>(context.device);
-    if (!device || context.viewport_width == 0 || context.viewport_height == 0) {
+    if (!device) {
+        if (!null_device_logged_) {
+            plugin_log(host_, registration_, LOGGER_LEVEL_WARN, "Overlay renderer notified of device loss (null device)");
+            null_device_logged_ = true;
+        }
+        release_font();
+        return;
+    }
+
+    if (null_device_logged_) {
+        plugin_log(host_, registration_, LOGGER_LEVEL_INFO, "Overlay renderer device pointer restored");
+        null_device_logged_ = false;
+    }
+
+    if (context.viewport_width == 0 || context.viewport_height == 0) {
         return;
     }
 

@@ -12,6 +12,8 @@
 #include <cassert>
 #include <sstream>
 
+#include "lib/Logger.hpp"
+
 using namespace std;
 
 template<typename T>
@@ -179,6 +181,8 @@ EXTERN_C HRESULT __declspec ( dllexport ) __stdcall DX9_Reset ( IDirect3DDevice9
     // put back saved code fragment
     m_Hook_Reset.SwapOld ( ( void * ) s_D3D9_Reset );
 
+    LOG ( "DX9_Reset: entering, device=%p", pDevice );
+
     // LOG(( "DX9_Reset: called." LOG_CR));
 
     g_pDevice = pDevice;
@@ -187,6 +191,7 @@ EXTERN_C HRESULT __declspec ( dllexport ) __stdcall DX9_Reset ( IDirect3DDevice9
 
     // call real Reset()
     HRESULT hRes = s_D3D9_Reset ( pDevice, params );
+    LOG ( "DX9_Reset: real Reset returned hr=0x%08X", hRes );
 
     DX9_HooksVerify ( pDevice );
 
@@ -194,6 +199,7 @@ EXTERN_C HRESULT __declspec ( dllexport ) __stdcall DX9_Reset ( IDirect3DDevice9
 
     // put JMP instruction again
     m_Hook_Reset.SwapReset ( ( void * ) s_D3D9_Reset );
+    LOG ( "DX9_Reset: exiting, device=%p, hr=0x%08X", pDevice, hRes );
     return hRes;
 }
 
@@ -214,12 +220,16 @@ EXTERN_C HRESULT __declspec ( dllexport ) __stdcall DX9_Present (
         DX9_HooksInit ( pDevice );
     }
 
+    LOG ( "DX9_Present: entering, device=%p", pDevice );
+
     PresentFrameBegin ( pDevice );
 
     // call real Present()
     HRESULT hRes = s_D3D9_Present ( pDevice, src, dest, hwnd, unused );
 
     PresentFrameEnd ( pDevice );
+
+    LOG ( "DX9_Present: exiting, device=%p, hr=0x%08X", pDevice, hRes );
 
     DX9_HooksVerify ( pDevice );
     // DEBUG_TRACE(( "DX9_Present: done." LOG_CR ));

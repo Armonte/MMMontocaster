@@ -15,8 +15,6 @@
 using namespace std;
 using namespace DllOverlayUi;
 
-static constexpr int kDescenderPadding = 4;
-
 
 #define OVERLAY_FONT                    "Tahoma"
 
@@ -292,7 +290,7 @@ void updateSelector ( uint8_t index, int position, const string& line )
     DrawText ( font, line, rect, DT_CALCRECT, D3DCOLOR_XRGB ( 0, 0, 0 ) );
 
     rect.top    += OVERLAY_TEXT_BORDER + position * OVERLAY_FONT_HEIGHT - OVERLAY_SELECTOR_Y_BORDER + 1;
-    rect.bottom += OVERLAY_TEXT_BORDER + position * OVERLAY_FONT_HEIGHT + OVERLAY_SELECTOR_Y_BORDER + kDescenderPadding;
+    rect.bottom += OVERLAY_TEXT_BORDER + position * OVERLAY_FONT_HEIGHT + OVERLAY_SELECTOR_Y_BORDER;
 
     if ( index == 0 )
     {
@@ -398,7 +396,7 @@ void renderOverlayText ( IDirect3DDevice9 *device, const D3DVIEWPORT9& viewport 
         rect.right = viewport.Width;
         rect.bottom = viewport.Height;
 
-        DrawText ( font, debugText, rect, DT_WORDBREAK | DT_NOCLIP |
+        DrawText ( font, debugText, rect, DT_WORDBREAK |
                    ( debugTextAlign == 0 ? DT_CENTER : ( debugTextAlign < 0 ? DT_LEFT : DT_RIGHT ) ),
                    OVERLAY_DEBUG_COLOR );
     }
@@ -411,7 +409,7 @@ void renderOverlayText ( IDirect3DDevice9 *device, const D3DVIEWPORT9& viewport 
         rect2.top = rect2.left = 0;
         rect2.right = viewport.Width;
         rect2.bottom = viewport.Height;
-        DrawText ( font, TrialManager::dtext, rect2, DT_WORDBREAK | DT_NOCLIP |
+        DrawText ( font, TrialManager::dtext, rect2, DT_WORDBREAK |
                    ( debugTextAlign == 0 ? DT_CENTER : ( debugTextAlign < 0 ? DT_LEFT : DT_RIGHT ) ),
                    OVERLAY_DEBUG_COLOR );
     }
@@ -446,7 +444,7 @@ void renderOverlayText ( IDirect3DDevice9 *device, const D3DVIEWPORT9& viewport 
             TextCalcRectW( font, text, rect, DT_LEFT, 0);
             D3DCOLOR color = ( TrialManager::comboTrialPosition > i ) ? OVERLAY_BUTTON_DONE_COLOR :
               ( TrialManager::comboTrialPosition == i ) ? OVERLAY_DEBUG_COLOR : OVERLAY_BUTTON_COLOR;
-            DrawTextW ( font, text, rect, DT_WORDBREAK | DT_NOCLIP |
+            DrawTextW ( font, text, rect, DT_WORDBREAK |
                    ( TrialManager::comboTrialTextAlign == 0 ? DT_CENTER : ( TrialManager::comboTrialTextAlign < 0 ? DT_LEFT : DT_RIGHT ) ),
                        color );
             rect.left = rect.right;
@@ -468,7 +466,7 @@ void renderOverlayText ( IDirect3DDevice9 *device, const D3DVIEWPORT9& viewport 
         rect3.left = 20;
         rect3.right = viewport.Width - 20;
         DrawRectangle ( device, INLINE_RECT ( rect3 ), OVERLAY_COMBO_BG_COLOR );
-        DrawTextW ( font, TrialManager::comboName, rect3, DT_WORDBREAK | DT_LEFT | DT_NOCLIP,
+        DrawTextW ( font, TrialManager::comboName, rect3, DT_WORDBREAK | DT_LEFT,
                     OVERLAY_DEBUG_COLOR );
     }
     if ( state == State::Disabled )
@@ -514,8 +512,7 @@ void renderOverlayText ( IDirect3DDevice9 *device, const D3DVIEWPORT9& viewport 
         rect.left   = centerX - int ( ( viewport.Width / 2 ) * 1.0 ) + OVERLAY_TEXT_BORDER;
         rect.right  = centerX + int ( ( viewport.Width / 2 ) * 1.0 ) - OVERLAY_TEXT_BORDER;
         rect.top    = OVERLAY_TEXT_BORDER;
-        // Add extra padding at bottom for descenders to prevent clipping
-        rect.bottom = rect.top + height + OVERLAY_TEXT_BORDER + kDescenderPadding;
+        rect.bottom = rect.top + height + OVERLAY_TEXT_BORDER;
 
         if ( newHeight == height )
         {

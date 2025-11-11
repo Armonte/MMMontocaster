@@ -118,9 +118,18 @@ void DetourManager::invoke_render(const RenderContext& context) {
 
         if (context.device == nullptr) {
             if (!logged_null_device) {
-                LOG ( "DetourManager: skipping render callback due to null device" );
+                LOG ( "DetourManager: notifying render callbacks of device loss (null device)" );
                 logged_null_device = true;
             }
+
+            try {
+                entry.callback(context);
+            } catch (const std::exception& ex) {
+                LOG ( "DetourManager: exception in render callback: %s", ex.what() );
+            } catch (...) {
+                LOG ( "DetourManager: unknown exception in render callback" );
+            }
+
             continue;
         }
 
@@ -140,6 +149,11 @@ void DetourManager::invoke_render(const RenderContext& context) {
 }
 
 void DetourManager::set_render_callbacks_enabled(bool enabled) {
+    if (!enabled && render_callbacks_enabled()) {
+        RenderContext null_context{};
+        invoke_render(null_context);
+    }
+
     bool changed = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
