@@ -16,6 +16,6 @@ All offsets are relative to the MBAACC module base (`MBAA.exe`). Colors are stor
 | Guard bar (lowest quality) | `0x252C4` | — | `#ffe60a0a` |
 | Guard break | `0x252B9` | — | `#ff767676` |
 
-Offsets for the guard bar colors reference the immediate values of the `mov` instructions that load each ARGB constant (e.g. `mov ebx, 0xFF767676`). Because these immediates live in executable code and shift between builds, the `hud-theme` plugin currently skips patching guard colors until a stable data location is identified.
+Offsets for the guard bar colors reference the immediate values of the `mov` instructions that load each ARGB constant (e.g. `mov ebx, 0xFF767676`). The hud-theme plugin writes only the 4-byte immediates, leaving the opcode bytes untouched.
 
 > Source: https://github.com/armonte/hantei-chan/issues/56
