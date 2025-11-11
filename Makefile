@@ -38,8 +38,8 @@ CONTRIB_C_SRCS = $(wildcard 3rdparty/*.c)
 # Main program sources
 LIB_CPP_SRCS = $(wildcard lib/*.cpp)
 BASE_CPP_SRCS = $(wildcard netplay/*.cpp) $(LIB_CPP_SRCS) $(wildcard sequences/*.cpp)
-MAIN_CPP_SRCS = $(wildcard targets/Main*.cpp tests/*.cpp targets/PluginHost/*.cpp targets/PluginHost/Services/*.cpp) $(BASE_CPP_SRCS)
-DLL_CPP_SRCS = $(wildcard targets/Dll*.cpp) $(wildcard targets/PluginHost/*.cpp) $(wildcard targets/PluginHost/Services/*.cpp) $(filter-out lib/ConsoleUi.cpp,$(BASE_CPP_SRCS))
+MAIN_CPP_SRCS = $(wildcard targets/Main*.cpp tests/*.cpp targets/PluginHost/*.cpp $(filter-out targets/PluginHost/Services/ReplayService.cpp targets/PluginHost/Services/ReplayServiceFactory.cpp,$(wildcard targets/PluginHost/Services/*.cpp))) targets/PluginHost/Services/ReplayServiceFactoryStub.cpp $(BASE_CPP_SRCS)
+DLL_CPP_SRCS = $(wildcard targets/Dll*.cpp) $(wildcard targets/PluginHost/*.cpp) $(filter-out targets/PluginHost/Services/ReplayServiceFactoryStub.cpp,$(wildcard targets/PluginHost/Services/*.cpp)) $(filter-out lib/ConsoleUi.cpp,$(BASE_CPP_SRCS))
 
 PLUGIN_CPP_SRCS_REPLAY = $(wildcard plugins/replay-takeover/*.cpp)
 PLUGIN_CPP_SRCS_HUD = $(wildcard plugins/hud-theme/*.cpp)

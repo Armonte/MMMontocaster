@@ -30,3 +30,4 @@ debugging
 plugins/replay-takeover/replay_takeover.dll
 plugins/hud-theme/hud_theme.dll
 plugins/replay-takeover/replay_takeover.dll
+*.dll

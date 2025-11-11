@@ -25,18 +25,18 @@ constexpr std::uint32_t kGuardQualityHighOffset = 0x252CCu; // immediate value f
 // Size of our color buffer (3 ARGB values = 12 bytes)
 constexpr std::size_t kColorBufferSize = static_cast<std::size_t>(GuardColorIndex::COUNT) * sizeof(std::uint32_t);
 
-// Read original instruction bytes
-bool read_instruction(const MemoryAPI* api, std::uintptr_t address, std::array<std::uint8_t, 5>& out_bytes) {
-    if (!api || !api->read) {
-        return false;
+    // Read original instruction bytes
+    [[maybe_unused]] bool read_instruction(const MemoryAPI* api, std::uintptr_t address, std::array<std::uint8_t, 5>& out_bytes) {
+        if (!api || !api->read) {
+            return false;
+        }
+        return api->read(reinterpret_cast<const void*>(address), out_bytes.data(), 5);
     }
-    return api->read(reinterpret_cast<const void*>(address), out_bytes.data(), 5);
-}
 
 // Write patched instruction: mov ebx, [buffer_address + index * 4]
 // This is: BB [low byte] [mid-low] [mid-high] [high byte]
 // Where the 4-byte address is buffer_address + (index * 4)
-bool write_patched_instruction(const MemoryAPI* api, std::uintptr_t instruction_address,
+[[maybe_unused]] bool write_patched_instruction(const MemoryAPI* api, std::uintptr_t instruction_address,
                                 std::uintptr_t buffer_address, GuardColorIndex index) {
     if (!api || !api->write) {
         return false;

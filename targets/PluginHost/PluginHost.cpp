@@ -11,6 +11,11 @@
 
 #ifdef _WIN32
 #include <windows.h>
+// ReplayService factory functions are provided by:
+// - ReplayServiceFactory.cpp (DLL builds) - real implementation
+// - ReplayServiceFactoryStub.cpp (main executable builds) - stub returning nullptr
+// Both provide the same function signatures in cccaster::plugin namespace
+// Forward declarations are in PluginHost.hpp
 #endif
 
 namespace cccaster::plugin {
@@ -57,7 +62,11 @@ PluginHost& PluginHost::instance() {
 }
 
 PluginHost::PluginHost()
-    : initialized_(false), registry_(std::make_unique<PluginRegistry>()), plugin_root_(fs::current_path() / fs::path(L"plugins")) {
+    : initialized_(false), registry_(std::make_unique<PluginRegistry>()), plugin_root_(fs::current_path() / fs::path(L"plugins"))
+#ifdef _WIN32
+    , replay_service_opaque_(nullptr)
+#endif
+{
     config_service_.set_storage_path(plugin_root_ / L"plugin-config.json");
     memory_api_.read = &memory_read_impl;
     memory_api_.write = &memory_write_impl;
@@ -90,6 +99,12 @@ void PluginHost::initialize() {
 
     input_service_.initialize();
     scheduler_service_.initialize();
+
+#ifdef _WIN32
+    // ReplayService factory - only works in DLL builds where ReplayService.cpp is linked
+    // Will be nullptr in main executable builds (linker will fail to resolve symbols)
+    replay_service_opaque_ = create_replay_service();
+#endif
 
     discover_plugins();
 
@@ -145,6 +160,11 @@ void PluginHost::shutdown() {
     input_service_.shutdown();
     scheduler_service_.shutdown();
 
+#ifdef _WIN32
+    destroy_replay_service(replay_service_opaque_);
+    replay_service_opaque_ = nullptr;
+#endif
+
     initialized_ = false;
 }
 
@@ -159,6 +179,12 @@ const fs::path& PluginHost::plugin_root() const {
 void PluginHost::poll_frame_services() {
     input_service_.poll();
 }
+
+#ifdef _WIN32
+const ReplayAPI* PluginHost::get_replay_api() const {
+    return get_replay_service_api(replay_service_opaque_);
+}
+#endif
 
 void PluginHost::discover_plugins() {
     if (!registry_) {
@@ -211,6 +237,11 @@ void PluginHost::build_host_api(PluginInstance& instance) {
     instance.host_api.ui = ui_service_.api();
     instance.host_api.scheduler = scheduler_service_.api();
     instance.host_api.input = input_service_.api();
+#ifdef _WIN32
+    instance.host_api.replay = get_replay_api();
+#else
+    instance.host_api.replay = nullptr;
+#endif
 
     instance.registration.id = instance.manifest.id.c_str();
     instance.registration.name = instance.manifest.name.c_str();
