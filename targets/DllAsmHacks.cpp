@@ -16,6 +16,7 @@
 #include <regex>
 #include <optional>
 #include <filesystem>
+#include <cstring>
 namespace fs = std::filesystem;
 
 using namespace std;
@@ -57,6 +58,12 @@ uint8_t sfxFilterArray[CC_SFX_ARRAY_LEN] = { 0 };
 uint8_t sfxMuteArray[CC_SFX_ARRAY_LEN] = { 0 };
 
 uint32_t numLoadedColors = 0;
+
+// VS Result Menu globals
+uint32_t* gVsResultMenuMode = (uint32_t*)0x77BF2C;
+uint32_t* gStoryModeClearFlag = (uint32_t*)0x5585F4;
+uint32_t* gVsResultMenuInputState = (uint32_t*)0x774C10;
+void** gVsResultMenuHandle = (void**)0x774C38;
 
 
 // The team order is always (initial) point character first
@@ -583,5 +590,118 @@ void _naked_paletteCallback() {
 }
 
 // -----
+
+// VS Result Menu hooks for Once Again plugin
+
+// Hook 1: VsResultMenu_Init - Force skipQuickRetryGate = 0 for offline versus
+extern "C" void VsResultMenu_Init_Hook(void* manager, void* context) {
+    // Check if offline versus (not network/replay/story)
+    if (gVsResultMenuMode && *gVsResultMenuMode == 0) {
+        if (gStoryModeClearFlag && *gStoryModeClearFlag == 0) {
+            // Force skipQuickRetryGate = 0 to enable ONCE AGAIN prompt
+            // Offset 0xD0 in CVSResultMenuManager struct
+            if (manager) {
+                int32_t* skipQuickRetryGate = (int32_t*)((char*)manager + 0xD0);
+                *skipQuickRetryGate = 0;
+            }
+        }
+    }
+    
+    // Call original function
+    emitCall(0x481D80);
+}
+
+// Hook 2: VsResultMenu_FinalizeSelection - Intercept ONCE_AGAIN selection
+extern "C" void VsResultMenu_FinalizeSelection_Hook(void* manager, void* tag) {
+    // Check if tag is "ONCE_AGAIN" or "ONCE AGAIN"
+    // Tag is likely an SSOString (MenuString) structure
+    bool isOnceAgain = false;
+    if (tag) {
+        // MenuString structure: base (int32), union (pLongString or shortString[0x10]), length, maxLength
+        struct MenuString {
+            int32_t base;
+            union {
+                char* pLongString;
+                char shortString[0x10];
+            };
+            int32_t length;
+            int32_t maxLength;
+        };
+        
+        MenuString* menuTag = (MenuString*)tag;
+        const char* tagStr = nullptr;
+        
+        // SSOString: if maxLength < 0x10, string is inline in shortString
+        // Otherwise, pLongString points to heap string
+        if (menuTag->maxLength < 0x10) {
+            tagStr = menuTag->shortString;
+        } else {
+            tagStr = menuTag->pLongString;
+        }
+        
+        if (tagStr) {
+            // Compare tag strings (case-insensitive check for safety)
+            if (strcmp(tagStr, "ONCE_AGAIN") == 0 || 
+                strcmp(tagStr, "ONCE AGAIN") == 0 ||
+                strncmp(tagStr, "ONCE", 4) == 0) {
+                isOnceAgain = true;
+            }
+        }
+    }
+    
+    // If ONCE_AGAIN selected, trigger replay export before state transition
+    if (isOnceAgain && netManPtr) {
+        // Export replay using NetplayManager
+        try {
+            netManPtr->exportInputs();
+        } catch (...) {
+            // Non-fatal - continue with menu flow
+        }
+    }
+    
+    // Call original function to complete state transition
+    emitCall(0x482E80);
+}
+
+// Hook 3: BattleScene_ApplyResultSelection - Inject replay export before scene transition
+extern "C" void BattleScene_ApplyResultSelection_Hook(uint32_t inputState) {
+    // Check if state is 0 (ONCE_AGAIN)
+    if (inputState == 0 && netManPtr) {
+        // Export replay before scene transition
+        try {
+            netManPtr->exportInputs();
+        } catch (...) {
+            // Non-fatal - continue with scene transition
+        }
+    }
+    
+    // Call original function
+    emitCall(0x439420);
+}
+
+// Hook patches
+const AsmList hookVsResultMenuInit = {
+    { (void*)0x481D80, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x481D80, &VsResultMenu_Init_Hook)),
+        0x90  // nop (original function prologue will be preserved by hook)
+    } }
+};
+
+const AsmList hookVsResultMenuFinalizeSelection = {
+    { (void*)0x482E80, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x482E80, &VsResultMenu_FinalizeSelection_Hook)),
+        0x90  // nop
+    } }
+};
+
+// Hook BattleScene_ApplyResultSelection
+// Note: Need to verify exact address - may need to hook at different offset
+// For now, hooking at function entry (0x439420) - may need adjustment based on prologue
+const AsmList hookBattleSceneApplyResultSelection = {
+    { (void*)0x439420, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x439420, &BattleScene_ApplyResultSelection_Hook)),
+        0x90  // nop
+    } }
+};
 
 } // namespace AsmHacks

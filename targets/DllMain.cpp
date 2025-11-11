@@ -1908,6 +1908,14 @@ struct DllMain
                     // *CC_STAGE_ANIMATION_OFF_ADDR = 1;
                 }
 
+                // VS Result Menu hooks for Once Again plugin
+                for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuInit )
+                    WRITE_ASM_HACK ( hack );
+                for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuFinalizeSelection )
+                    WRITE_ASM_HACK ( hack );
+                for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneApplyResultSelection )
+                    WRITE_ASM_HACK ( hack );
+
                 if ( netMan.autoReplaySave )
                 {
                     *CC_AUTO_REPLAY_SAVE_ADDR = 1;

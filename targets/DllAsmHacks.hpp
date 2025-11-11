@@ -613,4 +613,13 @@ static const AsmList loadCustomPalettesAsm = {
     PATCHJUMP(0x0041f87a, _naked_paletteCallback),
 };
 
+// VS Result Menu hooks for Once Again plugin
+extern "C" void VsResultMenu_Init_Hook(void* manager, void* context);
+extern "C" void VsResultMenu_FinalizeSelection_Hook(void* manager, void* tag);
+extern "C" void BattleScene_ApplyResultSelection_Hook(uint32_t inputState);
+
+extern const AsmList hookVsResultMenuInit;
+extern const AsmList hookVsResultMenuFinalizeSelection;
+extern const AsmList hookBattleSceneApplyResultSelection;
+
 } // namespace AsmHacks
