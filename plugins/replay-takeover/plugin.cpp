@@ -7,7 +7,6 @@
 #include "overlay_renderer.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
@@ -389,6 +388,9 @@ private:
     void enter_replay() {
         is_replay_active_ = true;
         save_state_->reset();
+        save_state_ready_ = false;
+        save_state_capture_failed_logged_ = false;
+        save_state_not_ready_logged_ = false;
         allocate_rewind_buffer();
         countdown_remaining_ = sanitized_countdown_amount_;
         countdown_frames_ = 0;
@@ -411,6 +413,9 @@ private:
     void leave_replay() {
         is_replay_active_ = false;
         save_state_->reset();
+        save_state_ready_ = false;
+        save_state_capture_failed_logged_ = false;
+        save_state_not_ready_logged_ = false;
         allocate_rewind_buffer();
         reset_buttons();
         run_state_ = RunState::Idle;
@@ -426,6 +431,9 @@ private:
 
     void reset_round() {
         save_state_->reset();
+        save_state_ready_ = false;
+        save_state_capture_failed_logged_ = false;
+        save_state_not_ready_logged_ = false;
         allocate_rewind_buffer();
         countdown_remaining_ = sanitized_countdown_amount_;
         countdown_frames_ = 0;
@@ -440,10 +448,12 @@ private:
     }
 
     void enter_pause() {
+        if (!capture_save_state("enter_pause")) {
+            return;
+        }
         run_state_ = RunState::Paused;
         state_machine_.set_mode(ReplayModeState::Paused);
         state_machine_.set_rewind(false);
-        save_state_->capture();
         game_state_->pause();
         game_state_->untakeover();
         countdown_remaining_ = sanitized_countdown_amount_;
@@ -453,10 +463,12 @@ private:
     }
 
     void resume_play() {
+        if (!restore_save_state("resume_play")) {
+            return;
+        }
         run_state_ = RunState::Playing;
         state_machine_.set_mode(ReplayModeState::Playing);
         state_machine_.set_rewind(false);
-        save_state_->restore();
         game_state_->untakeover();
         game_state_->play();
         set_text("PLAYING", "");
@@ -478,14 +490,20 @@ private:
 
     void restart_countdown() {
         game_state_->untakeover();
-        save_state_->restore();
+        if (!restore_save_state("restart_countdown")) {
+            game_state_->pause();
+            return;
+        }
         game_state_->pause();
         start_countdown(player_to_takeover_);
     }
 
     void stop_takeover_to_pause() {
         game_state_->untakeover();
-        save_state_->restore();
+        if (!restore_save_state("stop_takeover_to_pause")) {
+            game_state_->pause();
+            return;
+        }
         game_state_->pause();
         run_state_ = RunState::Paused;
         state_machine_.set_mode(ReplayModeState::Paused);
@@ -519,11 +537,17 @@ private:
     }
 
     void begin_takeover() {
+        if (!restore_save_state("begin_takeover")) {
+            run_state_ = RunState::Paused;
+            state_machine_.set_mode(ReplayModeState::Paused);
+            state_machine_.set_rewind(false);
+            game_state_->pause();
+            return;
+        }
         run_state_ = RunState::TakingOver;
         state_machine_.set_mode(ReplayModeState::TakingOver);
         state_machine_.set_rewind(false);
         state_machine_.set_countdown(0);
-        save_state_->restore();
         if (player_to_takeover_ == 1) {
             game_state_->takeover_player(1);
         } else {
@@ -539,16 +563,25 @@ private:
         }
 
         if (d_.pressed) {
-            if (rewind_write_count_ == 0 && !rewind_empty_logged_) {
-                log_warn("Rewind requested before any snapshots captured");
-                rewind_empty_logged_ = true;
+            if (!rewind_ready_ || rewind_write_count_ == 0) {
+                if (!rewind_empty_logged_) {
+                    log_warn("Rewind requested before any snapshots captured");
+                    rewind_empty_logged_ = true;
+                }
+                d_last_pressed_ = true;
+                return;
             }
             if (rewind_read_count_ < rewind_write_count_) {
                 rewind_read_index_ = (rewind_read_index_ - 1 + rewind_capacity_) % rewind_capacity_;
                 rewind_read_count_ += 1;
             }
-            if (rewind_read_count_ > 0) {
-                rewind_io_->restore(rewind_buffer_[rewind_read_index_]);
+            if (rewind_read_count_ > 0 && rewind_ready_) {
+                if (!restore_rewind_snapshot("rewind", rewind_buffer_[rewind_read_index_])) {
+                    rewind_read_count_ = 0;
+                    state_machine_.set_rewind(false);
+                    d_last_pressed_ = false;
+                    return;
+                }
             }
             set_text("REWINDING", "");
             state_machine_.set_rewind(true);
@@ -568,7 +601,23 @@ private:
 
         if ((timer % kRewindSampleIntervalFrames) == 0) {
             if (rewind_read_index_ == rewind_write_index_) {
-                rewind_io_->capture(rewind_buffer_[rewind_write_index_]);
+                if (!rewind_io_->capture(rewind_buffer_[rewind_write_index_])) {
+                    if (!rewind_capture_failed_logged_) {
+                        log_warn("Rewind snapshot capture failed; skipping frame");
+                        rewind_capture_failed_logged_ = true;
+                    }
+                    log_replay_snapshot_state("rewind_capture_fail", false);
+                    return;
+                }
+                if (!rewind_ready_) {
+                    rewind_ready_ = true;
+                    if (!rewind_ready_logged_) {
+                        log_info("Rewind snapshots ready");
+                        rewind_ready_logged_ = true;
+                    }
+                }
+                rewind_capture_failed_logged_ = false;
+                log_replay_snapshot_state("rewind_capture_ok", true);
                 rewind_write_index_ = (rewind_write_index_ + 1) % rewind_capacity_;
             }
             rewind_read_index_ = (rewind_read_index_ + 1) % rewind_capacity_;
@@ -606,6 +655,12 @@ private:
         rewind_write_count_ = 0;
         d_last_pressed_ = false;
         rewind_empty_logged_ = false;
+        rewind_capture_failed_logged_ = false;
+        rewind_ready_ = false;
+        rewind_ready_logged_ = false;
+        save_state_ready_ = false;
+        save_state_capture_failed_logged_ = false;
+        save_state_not_ready_logged_ = false;
     }
 
     void reset_buttons() {
@@ -616,6 +671,75 @@ private:
         d_.reset();
     }
 
+    bool capture_save_state(const char* context) {
+        if (!save_state_) {
+            return false;
+        }
+        if (!save_state_->capture()) {
+            save_state_ready_ = false;
+            if (!save_state_capture_failed_logged_) {
+                char message[96] = {};
+                std::snprintf(message, sizeof(message), "Save-state capture failed (%s)", context);
+                log_warn(message);
+                save_state_capture_failed_logged_ = true;
+            }
+            log_replay_snapshot_state("save_capture_fail", false);
+            return false;
+        }
+        if (!save_state_ready_) {
+            log_info("Save-state capture ready");
+        }
+        save_state_ready_ = true;
+        save_state_capture_failed_logged_ = false;
+        save_state_not_ready_logged_ = false;
+        log_replay_snapshot_state("save_capture_ok", true);
+        return true;
+    }
+
+    bool restore_save_state(const char* context) {
+        if (!save_state_) {
+            return false;
+        }
+        if (!save_state_ready_) {
+            if (!save_state_not_ready_logged_) {
+                char message[96] = {};
+                std::snprintf(message, sizeof(message), "Save-state restore blocked; capture incomplete (%s)", context);
+                log_warn(message);
+                save_state_not_ready_logged_ = true;
+            }
+            log_replay_snapshot_state("save_restore_blocked", false);
+            return false;
+        }
+        if (!save_state_->restore()) {
+            char message[96] = {};
+            std::snprintf(message, sizeof(message), "Save-state restore failed (%s)", context);
+            log_warn(message);
+            log_replay_snapshot_state("save_restore_fail", false);
+            return false;
+        }
+        save_state_not_ready_logged_ = false;
+        log_replay_snapshot_state("save_restore_ok", true);
+        return true;
+    }
+
+    bool restore_rewind_snapshot(const char* context, const replay_takeover::RewindSnapshot& snapshot) {
+        if (!rewind_io_) {
+            return false;
+        }
+        if (!rewind_ready_) {
+            return false;
+        }
+        if (!rewind_io_->restore(snapshot)) {
+            char message[96] = {};
+            std::snprintf(message, sizeof(message), "Rewind snapshot restore failed (%s)", context);
+            log_warn(message);
+            log_replay_snapshot_state("rewind_restore_fail", false);
+            return false;
+        }
+        log_replay_snapshot_state("rewind_restore_ok", true);
+        return true;
+    }
+
     void toggle_overlay() {
         overlay_settings_.enabled = !overlay_settings_.enabled;
         config_.overlay_enabled = overlay_settings_.enabled;
@@ -623,6 +747,51 @@ private:
             config_service_->save(config_);
         }
         log_info(overlay_settings_.enabled ? "Overlay enabled" : "Overlay disabled");
+    }
+
+    void log_replay_snapshot_state(const char* label, bool success) const {
+        if (!memory_) {
+            return;
+        }
+
+        std::uint32_t struct_ptr = 0;
+        bool struct_ok = memory_->read(replay_takeover::addr::kPointerToStruct, struct_ptr);
+
+        std::uint32_t round_number = 0;
+        bool round_ok = memory_->read(replay_takeover::addr::kRoundNumber, round_number);
+        if (round_ok) {
+            round_number = std::min<std::uint32_t>(round_number, 5u);
+        }
+
+        constexpr std::uint32_t kReplayDataBaseOffset = 0x120;
+        constexpr std::uint32_t kReplayDataRoundStride = 0x140;
+
+        std::uintptr_t meta_address = static_cast<std::uintptr_t>(struct_ptr)
+            + kReplayDataBaseOffset
+            + (kReplayDataRoundStride * round_number);
+
+        std::uint32_t round_ptr = 0;
+        bool round_ptr_ok = struct_ok && memory_->read_absolute(meta_address, &round_ptr, sizeof(round_ptr));
+
+        char message[160] = {};
+        std::snprintf(message,
+                      sizeof(message),
+                      "[%s] success=%s struct_ptr=%s0x%08X round=%s%u meta=0x%08llX round_ptr=%s0x%08X",
+                      label,
+                      success ? "true" : "false",
+                      struct_ok ? "" : "?",
+                      struct_ok ? struct_ptr : 0u,
+                      round_ok ? "" : "?",
+                      round_ok ? round_number : 0u,
+                      static_cast<unsigned long long>(meta_address),
+                      round_ptr_ok ? "" : "?",
+                      round_ptr_ok ? round_ptr : 0u);
+
+        if (success) {
+            log_info(message);
+        } else {
+            log_warn(message);
+        }
     }
 
     std::string format_player_countdown() const {
@@ -728,9 +897,15 @@ private:
     bool timer_read_failure_logged_ = false;
     bool input_blocked_logged_ = false;
     bool rewind_empty_logged_ = false;
+    bool rewind_capture_failed_logged_ = false;
+    bool rewind_ready_ = false;
+    bool rewind_ready_logged_ = false;
     bool last_inputs_accept_ = false;
     std::uint8_t last_intro_state_ = 0;
     std::uint8_t last_outro_state_ = 0;
+    bool save_state_ready_ = false;
+    bool save_state_capture_failed_logged_ = false;
+    bool save_state_not_ready_logged_ = false;
 };
 
 ReplayTakeoverPlugin& instance() {
@@ -740,7 +915,15 @@ ReplayTakeoverPlugin& instance() {
 
 } // namespace
 
-extern "C" __declspec(dllexport) PluginResult PluginEntry(const PluginHostAPI* host, const PluginRegistration* registration) {
+#if defined(_WIN32)
+#define CCCASTER_PLUGIN_EXPORT __declspec(dllexport)
+#else
+#define CCCASTER_PLUGIN_EXPORT
+#endif
+
+extern "C" CCCASTER_PLUGIN_EXPORT PluginResult PluginEntry(const PluginHostAPI* host, const PluginRegistration* registration) {
     return instance().initialize(host, registration);
 }
+
+#undef CCCASTER_PLUGIN_EXPORT
 

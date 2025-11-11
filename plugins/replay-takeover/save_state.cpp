@@ -32,7 +32,7 @@ constexpr std::uint32_t kReplayDataRoundStride = 0x140;
 bool capture_player_replay_data(const MemoryAccessor& memory,
                                 std::array<std::array<PlayerReplayData, 2>, 6>& out) {
     std::uint32_t pointer_to_struct = 0;
-    if (!memory.read(addr::kPointerToStruct, pointer_to_struct)) {
+    if (!memory.read(addr::kPointerToStruct, pointer_to_struct) || pointer_to_struct == 0) {
         return false;
     }
 
@@ -47,7 +47,7 @@ bool capture_player_replay_data(const MemoryAccessor& memory,
         + (kReplayDataRoundStride * round_number);
 
     std::uint32_t pointer_to_round_data = 0;
-    if (!memory.read_absolute(meta_address, &pointer_to_round_data, sizeof(pointer_to_round_data))) {
+    if (!memory.read_absolute(meta_address, &pointer_to_round_data, sizeof(pointer_to_round_data)) || pointer_to_round_data == 0) {
         return false;
     }
 
@@ -60,7 +60,7 @@ bool capture_player_replay_data(const MemoryAccessor& memory,
 bool restore_player_replay_data(const MemoryAccessor& memory,
                                  const std::array<std::array<PlayerReplayData, 2>, 6>& data) {
     std::uint32_t pointer_to_struct = 0;
-    if (!memory.read(addr::kPointerToStruct, pointer_to_struct)) {
+    if (!memory.read(addr::kPointerToStruct, pointer_to_struct) || pointer_to_struct == 0) {
         return false;
     }
 
@@ -75,7 +75,7 @@ bool restore_player_replay_data(const MemoryAccessor& memory,
         + (kReplayDataRoundStride * round_number);
 
     std::uint32_t pointer_to_round_data = 0;
-    if (!memory.read_absolute(meta_address, &pointer_to_round_data, sizeof(pointer_to_round_data))) {
+    if (!memory.read_absolute(meta_address, &pointer_to_round_data, sizeof(pointer_to_round_data)) || pointer_to_round_data == 0) {
         return false;
     }
 

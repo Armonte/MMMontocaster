@@ -14,8 +14,8 @@ constexpr std::uint32_t kMeterBloodHeat = 0x254BAu;
 constexpr std::uint32_t kMeterBreak = 0x25567u;
 
 constexpr std::uint32_t kGuardQualityHigh = 0x252CCu;
-constexpr std::uint32_t kGuardQualityLow = 0x252C6u;
-constexpr std::uint32_t kGuardBreak = 0x252B8u;
+constexpr std::uint32_t kGuardQualityLow = 0x252C4u;
+constexpr std::uint32_t kGuardBreak = 0x252B9u;
 
 } // namespace hud_theme::addresses
 

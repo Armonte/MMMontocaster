@@ -4,6 +4,8 @@
 #include <array>
 #include <cstring>
 
+#include "game_addresses.hpp"
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -185,38 +187,38 @@ bool GameStateMemory::set_challenger_text(std::string_view p1, std::string_view 
     return ok;
 }
 
-bool GameStateMemory::write_patch(std::uint32_t offset, std::span<const std::uint8_t> bytes) const {
-    if (bytes.empty()) {
+bool GameStateMemory::write_patch(std::uint32_t offset, const std::uint8_t* data, std::size_t size) const {
+    if (!data || size == 0) {
         return false;
     }
 #ifdef _WIN32
     unsigned long old_protect = 0;
-    if (!memory_.protect(offset, bytes.size(), PAGE_EXECUTE_READWRITE, old_protect)) {
+    if (!memory_.protect(offset, size, PAGE_EXECUTE_READWRITE, old_protect)) {
         return false;
     }
 #endif
-    const bool result = memory_.write(offset, bytes.data(), bytes.size());
+    const bool result = memory_.write(offset, data, size);
 #ifdef _WIN32
     unsigned long ignored = 0;
-    memory_.protect(offset, bytes.size(), old_protect, ignored);
+    memory_.protect(offset, size, old_protect, ignored);
 #endif
     return result;
 }
 
-bool GameStateMemory::write_patch_absolute(std::uintptr_t address, std::span<const std::uint8_t> bytes) const {
-    if (bytes.empty()) {
+bool GameStateMemory::write_patch_absolute(std::uintptr_t address, const std::uint8_t* data, std::size_t size) const {
+    if (!data || size == 0) {
         return false;
     }
 #ifdef _WIN32
     unsigned long old_protect = 0;
-    if (!memory_.protect_absolute(address, bytes.size(), PAGE_EXECUTE_READWRITE, old_protect)) {
+    if (!memory_.protect_absolute(address, size, PAGE_EXECUTE_READWRITE, old_protect)) {
         return false;
     }
 #endif
-    const bool result = memory_.write_absolute(address, bytes.data(), bytes.size());
+    const bool result = memory_.write_absolute(address, data, size);
 #ifdef _WIN32
     unsigned long ignored = 0;
-    memory_.protect_absolute(address, bytes.size(), old_protect, ignored);
+    memory_.protect_absolute(address, size, old_protect, ignored);
 #endif
     return result;
 }

@@ -260,9 +260,16 @@ private:
             {"guard.quality_low", addresses::kGuardQualityLow, theme_.guard.quality_low},
             {"guard.break", addresses::kGuardBreak, theme_.guard.breaker}};
 
-        for (const auto& write : guard_writes) {
-            if (!write_color(write.label, write.offset, write.argb)) {
-                success = false;
+        if (!guard_colors_enabled_) {
+            if (!guard_patch_disabled_logged_) {
+                log_warn("Skipping guard color writes; offsets unresolved for current build");
+                guard_patch_disabled_logged_ = true;
+            }
+        } else {
+            for (const auto& write : guard_writes) {
+                if (!write_color(write.label, write.offset, write.argb)) {
+                    success = false;
+                }
             }
         }
 
@@ -312,6 +319,8 @@ private:
     PluginCallbackHandle frame_handle_{};
     bool theme_applied_ = false;
     std::chrono::steady_clock::time_point last_theme_check_ = std::chrono::steady_clock::now();
+    bool guard_colors_enabled_ = false;
+    bool guard_patch_disabled_logged_ = false;
 };
 
 } // namespace hud_theme

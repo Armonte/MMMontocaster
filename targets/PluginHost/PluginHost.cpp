@@ -19,13 +19,13 @@ namespace {
 
 bool memory_read_impl(const void* address, void* buffer, size_t size) {
     if (!address || !buffer || size == 0) {
-        return false;
-    }
+    return false;
+}
 #ifdef _WIN32
     SIZE_T bytes = 0;
     if (ReadProcessMemory(GetCurrentProcess(), address, buffer, size, &bytes) == 0) {
-        return false;
-    }
+    return false;
+}
     return bytes == size;
 #else
     std::memcpy(buffer, address, size);
@@ -36,7 +36,7 @@ bool memory_read_impl(const void* address, void* buffer, size_t size) {
 bool memory_write_impl(void* address, const void* data, size_t size) {
     if (!address || !data || size == 0) {
         return false;
-    }
+}
 #ifdef _WIN32
     SIZE_T bytes = 0;
     if (WriteProcessMemory(GetCurrentProcess(), address, data, size, &bytes) == 0) {

@@ -1,9 +1,9 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string_view>
 
-#include "game_addresses.hpp"
 #include "game_memory.hpp"
 
 namespace replay_takeover {
@@ -43,8 +43,18 @@ public:
 private:
     const MemoryAccessor& memory_;
 
-    bool write_patch(std::uint32_t offset, std::span<const std::uint8_t> bytes) const;
-    bool write_patch_absolute(std::uintptr_t address, std::span<const std::uint8_t> bytes) const;
+    bool write_patch(std::uint32_t offset, const std::uint8_t* data, std::size_t size) const;
+    bool write_patch_absolute(std::uintptr_t address, const std::uint8_t* data, std::size_t size) const;
+
+    template <std::size_t N>
+    bool write_patch(std::uint32_t offset, const std::array<std::uint8_t, N>& bytes) const {
+        return write_patch(offset, bytes.data(), bytes.size());
+    }
+
+    template <std::size_t N>
+    bool write_patch_absolute(std::uintptr_t address, const std::array<std::uint8_t, N>& bytes) const {
+        return write_patch_absolute(address, bytes.data(), bytes.size());
+    }
 };
 
 } // namespace replay_takeover
