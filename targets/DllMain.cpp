@@ -1909,20 +1909,16 @@ struct DllMain
                 }
 
                 // VS Result Menu hooks for Once Again plugin
-                // TEMPORARILY DISABLED: All Once Again hooks disabled to isolate crash
-                // for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuInit )
-                //     WRITE_ASM_HACK ( hack );
-                // for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuFinalizeSelection )
-                //     WRITE_ASM_HACK ( hack );
+                for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuInit )
+                    WRITE_ASM_HACK ( hack );
+                for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuFinalizeSelection )
+                    WRITE_ASM_HACK ( hack );
                 // TEMPORARILY DISABLED: BattleScene_ApplyResultSelection hook conflicts with BattleScene_PostMatchTransition
                 // They're the same function at 0x439420, and the hook signature was wrong
                 // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneApplyResultSelection )
                 //     WRITE_ASM_HACK ( hack );
-                // Hook ResultMenu_SetupWinQuote - CORRECT timing (after YOU WIN, before WINNER text)
-                for ( const AsmHacks::Asm& hack : AsmHacks::hookResultMenuSetupWinQuote )
+                for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleScenePostMatchTransition )
                     WRITE_ASM_HACK ( hack );
-                // ENABLED: BattleScene_ProcessResultState hook for case 20 YES/NO dialog handling
-                // This hook processes case 20 and halts normal flow while dialog is active
                 for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneProcessResultState )
                     WRITE_ASM_HACK ( hack );
 

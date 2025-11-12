@@ -78,6 +78,170 @@ static CTM_YesNo_Init_t CTM_YesNo_Init = (CTM_YesNo_Init_t)0x47D070;
 typedef int (__stdcall* VsResultMenu_Create_t)(int skipQuickRetry);
 static VsResultMenu_Create_t VsResultMenu_Create_Original = (VsResultMenu_Create_t)0x482CD0;
 
+typedef char (__thiscall* CTM_YesNo_Update_t)(void* menuManager);
+static CTM_YesNo_Update_t CTM_YesNo_Update = (CTM_YesNo_Update_t)0x44CB80;
+
+typedef int (__thiscall* CTM_YesNo_SetMessage_t)(void* menuManager, const char* text);
+static CTM_YesNo_SetMessage_t CTM_YesNo_SetMessage = (CTM_YesNo_SetMessage_t)0x4D8CA0;
+
+typedef uint8_t (__thiscall* CTM_YesNo_Render_t)(void* menuManager);
+static CTM_YesNo_Render_t CTM_YesNo_Render = (CTM_YesNo_Render_t)0x4D8E40;
+
+static constexpr size_t kCTMYesNoSize = 0xC8;
+static constexpr uintptr_t kCTMYesNoVTable = 0x005378E0;
+static const char* kOnceAgainPromptString = reinterpret_cast<const char*>(0x00538AC8);
+
+static void ResetOnceAgainDialogState() {
+    gOnceAgainYesNoDialog = nullptr;
+    gOnceAgainYesNoDialogActive = false;
+    gOnceAgainYesNoDialogResult = -1;
+    gBattleContextForDialog = nullptr;
+}
+
+static void DestroyOnceAgainDialog() {
+    if (!gOnceAgainYesNoDialog) {
+        ResetOnceAgainDialogState();
+        return;
+    }
+
+    void* dialog = gOnceAgainYesNoDialog;
+    gOnceAgainYesNoDialog = nullptr;
+
+    try {
+        auto** vtable = reinterpret_cast<void***>(dialog);
+        if (vtable && *vtable && (*vtable)[0]) {
+            using DestructorFn = void(__thiscall*)(void*, int);
+            auto destroy = reinterpret_cast<DestructorFn>((*vtable)[0]);
+            destroy(dialog, 1);
+        }
+    } catch (...) {
+        LOG("DestroyOnceAgainDialog: Exception while invoking dialog destructor");
+    }
+
+    operator delete(dialog);
+    ResetOnceAgainDialogState();
+}
+
+static bool CreateOnceAgainDialog(void* preMatchWords) {
+    if (gOnceAgainYesNoDialogActive && gOnceAgainYesNoDialog) {
+        gBattleContextForDialog = preMatchWords;
+        return true;
+    }
+
+    void* dialogMem = operator new(kCTMYesNoSize);
+    if (!dialogMem) {
+        LOG("CreateOnceAgainDialog: operator new failed");
+        return false;
+    }
+
+    std::memset(dialogMem, 0, kCTMYesNoSize);
+
+    int dialogResult = 0;
+    try {
+        dialogResult = CTM_YesNo_Init(dialogMem);
+    } catch (...) {
+        LOG("CreateOnceAgainDialog: CTM_YesNo_Init threw");
+        operator delete(dialogMem);
+        return false;
+    }
+
+    if (!dialogResult || dialogResult != reinterpret_cast<int>(dialogMem)) {
+        LOG("CreateOnceAgainDialog: CTM_YesNo_Init unexpected result=%p", (void*)dialogResult);
+        operator delete(dialogMem);
+        return false;
+    }
+
+    auto* dialogWords = reinterpret_cast<uint32_t*>(dialogMem);
+    dialogWords[33] = 0; // state
+    dialogWords[34] = 0; // timer
+    dialogWords[40] = 0; // selection flag (0 = YES)
+
+    if (CTM_YesNo_SetMessage && kOnceAgainPromptString) {
+        try {
+            CTM_YesNo_SetMessage(dialogMem, kOnceAgainPromptString);
+        } catch (...) {
+            LOG("CreateOnceAgainDialog: CTM_YesNo_SetMessage threw");
+        }
+    }
+
+    gOnceAgainYesNoDialog = dialogMem;
+    gOnceAgainYesNoDialogActive = true;
+    gOnceAgainYesNoDialogResult = -1;
+    gBattleContextForDialog = preMatchWords;
+
+    LOG("CreateOnceAgainDialog: Dialog created at %p", dialogMem);
+    return true;
+}
+
+static bool UpdateOnceAgainDialog() {
+    if (!gOnceAgainYesNoDialogActive || !gOnceAgainYesNoDialog) {
+        return false;
+    }
+
+    try {
+        CTM_YesNo_Update(gOnceAgainYesNoDialog);
+    } catch (...) {
+        LOG("UpdateOnceAgainDialog: CTM_YesNo_Update threw");
+        DestroyOnceAgainDialog();
+        return false;
+    }
+
+    const auto* dialogWords = reinterpret_cast<const uint32_t*>(gOnceAgainYesNoDialog);
+    const uint32_t state = dialogWords[33];
+    const uint32_t selectionIsNo = dialogWords[40];
+
+    if (state == 4 && gOnceAgainYesNoDialogResult == -1) {
+        gOnceAgainYesNoDialogResult = (selectionIsNo == 0) ? 1 : 0;
+        LOG("UpdateOnceAgainDialog: Completed with result=%d", gOnceAgainYesNoDialogResult);
+        return true;
+    }
+
+    return false;
+}
+
+static void RenderOnceAgainDialog() {
+    if (!gOnceAgainYesNoDialogActive || !gOnceAgainYesNoDialog) {
+        return;
+    }
+
+    try {
+        CTM_YesNo_Render(gOnceAgainYesNoDialog);
+    } catch (...) {
+        LOG("RenderOnceAgainDialog: CTM_YesNo_Render threw");
+    }
+}
+
+static bool ShouldShowOnceAgainDialog(int* preMatchWords, char forceSkipQuickRetry, int hasMenuChoice) {
+    if (!preMatchWords) {
+        return false;
+    }
+
+    if (forceSkipQuickRetry != 0 || hasMenuChoice != 0) {
+        return false;
+    }
+
+    if (gStoryModeClearFlag && *gStoryModeClearFlag != 0) {
+        return false;
+    }
+
+    if (gVsResultMenuMode && *gVsResultMenuMode != 0) {
+        return false;
+    }
+
+    if (preMatchWords[21] != 0) {
+        return false;
+    }
+
+    if (preMatchWords[17] < 30) {
+        return false;
+    }
+
+    if (preMatchWords[20] <= 300) {
+        return false;
+    }
+
+    return true;
+}
 
 // The team order is always (initial) point character first
 static unordered_map<uint32_t, pair<uint32_t, uint32_t>> teamOrders =
@@ -653,7 +817,146 @@ extern "C" void BattleScene_ProcessResultState_Trampoline(void* ctx, void* battl
 }
 
 extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleContext, int sceneState, char forceSkipQuickRetry, int hasMenuChoice, int a6) {
-    BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, nullptr);
+    try {
+        if (!battleContext) {
+            emitCall(0x43A4C0);
+            return;
+        }
+
+        int* bc = (int*)battleContext;
+        if (!bc) {
+            emitCall(0x43A4C0);
+            return;
+        }
+
+        int state = bc[21];
+
+        // Attempt to create dialog when conditions are met and we are in the initial state
+        if (!gOnceAgainYesNoDialogActive && ShouldShowOnceAgainDialog(bc, forceSkipQuickRetry, hasMenuChoice)) {
+            if (CreateOnceAgainDialog(bc)) {
+                bc[21] = 20;
+                state = 20;
+            }
+        }
+
+        if (gOnceAgainYesNoDialogActive && gOnceAgainYesNoDialog) {
+            gBattleContextForDialog = bc;
+
+            if (state == 0) {
+                bc[21] = 20;
+                state = 20;
+            }
+
+            if (state == 20) {
+                if (UpdateOnceAgainDialog()) {
+                    if (gOnceAgainYesNoDialogResult == 1) { // YES selected
+                        if (netManPtr) {
+                            try {
+                                netManPtr->exportInputs();
+                            } catch (...) {
+                                LOG("BattleScene_ProcessResultState_Hook: exportInputs threw");
+                            }
+                        }
+
+                        DestroyOnceAgainDialog();
+                        bc[21] = 10;
+                        emitCall(0x43A4C0);
+                        return;
+                    }
+
+                    if (gOnceAgainYesNoDialogResult == 0) { // NO selected
+                        VsResultMenu_Create_Original(0);
+                        DestroyOnceAgainDialog();
+                        bc[21] = 0;
+                        emitCall(0x43A4C0);
+                        return;
+                    }
+                }
+
+                RenderOnceAgainDialog();
+                return; // Keep dialog active without advancing state machine
+            }
+        }
+    } catch (...) {
+        LOG("BattleScene_ProcessResultState_Hook: Exception caught, calling original");
+    }
+
+    emitCall(0x43A4C0);
+}
+
+// Hook 2: VsResultMenu_FinalizeSelection - Intercept ONCE_AGAIN selection
+extern "C" void VsResultMenu_FinalizeSelection_Hook(void* manager, void* tag) {
+    bool isOnceAgain = false;
+    if (tag) {
+        struct MenuString {
+            int32_t base;
+            union {
+                char* pLongString;
+                char shortString[0x10];
+            };
+            int32_t length;
+            int32_t maxLength;
+        };
+
+        auto* menuTag = reinterpret_cast<MenuString*>(tag);
+        const char* tagStr = nullptr;
+        if (menuTag->maxLength < 0x10) {
+            tagStr = menuTag->shortString;
+        } else {
+            tagStr = menuTag->pLongString;
+        }
+
+        if (tagStr) {
+            if (strcmp(tagStr, "ONCE_AGAIN") == 0 || strcmp(tagStr, "ONCE AGAIN") == 0 || strncmp(tagStr, "ONCE", 4) == 0) {
+                isOnceAgain = true;
+            }
+        }
+    }
+
+    if (isOnceAgain && netManPtr) {
+        try {
+            netManPtr->exportInputs();
+        } catch (...) {
+            LOG("VsResultMenu_FinalizeSelection_Hook: exportInputs threw");
+        }
+    }
+
+    emitCall(0x482E80);
+}
+
+// Hook 3: BattleScene_ApplyResultSelection - currently passthrough
+extern "C" void BattleScene_ApplyResultSelection_Hook(uint32_t inputState) {
+    if (inputState == 0 && netManPtr) {
+        try {
+            netManPtr->exportInputs();
+        } catch (...) {
+            LOG("BattleScene_ApplyResultSelection_Hook: exportInputs threw");
+        }
+    }
+
+    // Original call disabled previously due to recursion; continue to fall through safely.
+    LOG("BattleScene_ApplyResultSelection_Hook: original call skipped to avoid recursion");
+    return;
+}
+
+// Hook 4: BattleScene_PostMatchTransition - Inject YES/NO dialog BEFORE VsResultMenu_Create
+extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook(int skipQuickRetry) {
+    try {
+        if (!gVsResultMenuMode || !gStoryModeClearFlag) {
+            return VsResultMenu_Create_Original(skipQuickRetry);
+        }
+
+        LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: skipQuickRetry=%d, mode=%d, storyFlag=%d", skipQuickRetry, *gVsResultMenuMode, *gStoryModeClearFlag);
+
+        if (*gVsResultMenuMode == 0 && *gStoryModeClearFlag == 0 && skipQuickRetry == 0) {
+            LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Conditions met for Once Again dialog");
+        }
+    } catch (...) {
+        LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Exception, calling original");
+    }
+
+    LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Calling original VsResultMenu_Create");
+    return VsResultMenu_Create_Original(skipQuickRetry);
 }
 
 const AsmList hookVsResultMenuInit = {
@@ -663,12 +966,32 @@ const AsmList hookVsResultMenuInit = {
     } }
 };
 
-const AsmList hookResultMenuSetupWinQuote = {
-    // Placeholder: hook disabled while Once Again dialog is reworked
+const AsmList hookVsResultMenuFinalizeSelection = {
+    { (void*)0x482E80, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x482E80, &VsResultMenu_FinalizeSelection_Hook)),
+        0x90
+    } }
+};
+
+const AsmList hookBattleSceneApplyResultSelection = {
+    { (void*)0x439420, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x439420, &BattleScene_ApplyResultSelection_Hook)),
+        0x90
+    } }
+};
+
+const AsmList hookBattleScenePostMatchTransition = {
+    { (void*)0x4396C5, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x4396C5, &BattleScene_PostMatchTransition_VsResultMenuCreate_Hook)),
+        0x90
+    } }
 };
 
 const AsmList hookBattleSceneProcessResultState = {
-    // Placeholder: hook disabled while Once Again dialog is reworked
+    { (void*)0x43A4C0, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x43A4C0, &BattleScene_ProcessResultState_Hook)),
+        0x90
+    } }
 };
 
 } // namespace AsmHacks
