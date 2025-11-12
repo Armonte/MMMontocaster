@@ -220,16 +220,34 @@ EXTERN_C HRESULT __declspec ( dllexport ) __stdcall DX9_Present (
         DX9_HooksInit ( pDevice );
     }
 
-    LOG ( "DX9_Present: entering, device=%p", pDevice );
+    // LOG ( "DX9_Present: entering, device=%p", pDevice ); // Commented out to prevent log spam (called every frame)
 
-    PresentFrameBegin ( pDevice );
+    try
+    {
+        PresentFrameBegin ( pDevice );
+    }
+    catch ( ... )
+    {
+        // If PresentFrameBegin fails (e.g., ImGui initialization issues),
+        // log it but continue to prevent breaking the rendering pipeline
+        LOG ( "DX9_Present: PresentFrameBegin threw exception, continuing" );
+    }
 
     // call real Present()
     HRESULT hRes = s_D3D9_Present ( pDevice, src, dest, hwnd, unused );
 
-    PresentFrameEnd ( pDevice );
+    try
+    {
+        PresentFrameEnd ( pDevice );
+    }
+    catch ( ... )
+    {
+        // If PresentFrameEnd fails, log it but continue
+        // This prevents framerate limiting failures from breaking the game
+        LOG ( "DX9_Present: PresentFrameEnd threw exception, continuing" );
+    }
 
-    LOG ( "DX9_Present: exiting, device=%p, hr=0x%08X", pDevice, hRes );
+    // LOG ( "DX9_Present: exiting, device=%p, hr=0x%08X", pDevice, hRes ); // Commented out to prevent log spam (called every frame)
 
     DX9_HooksVerify ( pDevice );
     // DEBUG_TRACE(( "DX9_Present: done." LOG_CR ));

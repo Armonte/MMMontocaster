@@ -116,6 +116,10 @@ void OverlayRenderer::render(const RenderContext& context,
         return;
     }
 
+    if (!replay_active) {
+        return;
+    }
+
     auto* device = static_cast<IDirect3DDevice9*>(context.device);
     if (!device) {
         if (!null_device_logged_) {

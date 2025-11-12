@@ -25,6 +25,11 @@ private:
     bool was_result_menu_active_ = false;
     ResultMenuState last_menu_state_ = RESULT_MENU_STATE_UNKNOWN;
     bool once_again_selected_ = false;
+    
+    // Stability check: wait a few frames after menu becomes active before querying state
+    // This prevents crashes during the transition period
+    int frames_since_menu_activated_ = 0;
+    static constexpr int STABILITY_FRAMES = 3; // Wait 3 frames for menu to stabilize
 };
 
 } // namespace once_again

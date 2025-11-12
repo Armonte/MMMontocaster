@@ -96,8 +96,20 @@ void OnceAgainPlugin::on_frame() {
         return;
     }
 
+    // Defensive check: ensure host API is still valid
+    if (!host_ || !host_->menu) {
+        return;
+    }
+
     // Update menu hook to check for state changes
-    menu_hook_->update();
+    // Wrap in try-catch to prevent crashes from invalid memory access
+    try {
+        menu_hook_->update();
+    } catch (...) {
+        // Silently ignore exceptions from menu state queries
+        // This can happen during state transitions when memory is invalid
+        return;
+    }
 
     // Check if "Once Again" was just selected
     if (menu_hook_->was_once_again_selected()) {

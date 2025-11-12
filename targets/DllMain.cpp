@@ -1913,7 +1913,13 @@ struct DllMain
                     WRITE_ASM_HACK ( hack );
                 for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuFinalizeSelection )
                     WRITE_ASM_HACK ( hack );
-                for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneApplyResultSelection )
+                // TEMPORARILY DISABLED: BattleScene_ApplyResultSelection hook conflicts with BattleScene_PostMatchTransition
+                // They're the same function at 0x439420, and the hook signature was wrong
+                // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneApplyResultSelection )
+                //     WRITE_ASM_HACK ( hack );
+                for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleScenePostMatchTransition )
+                    WRITE_ASM_HACK ( hack );
+                for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneProcessResultState )
                     WRITE_ASM_HACK ( hack );
 
                 if ( netMan.autoReplaySave )

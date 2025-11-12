@@ -65,6 +65,19 @@ uint32_t* gStoryModeClearFlag = (uint32_t*)0x5585F4;
 uint32_t* gVsResultMenuInputState = (uint32_t*)0x774C10;
 void** gVsResultMenuHandle = (void**)0x774C38;
 
+// YES/NO dialog state for "ONCE AGAIN" prompt
+static void* gOnceAgainYesNoDialog = nullptr;
+static bool gOnceAgainYesNoDialogActive = false;
+static int gOnceAgainYesNoDialogResult = -1; // -1=no selection, 0=NO, 1=YES
+static void* gBattleContextForDialog = nullptr; // Store battleContext for dialog handling
+
+// Function pointer types for YES/NO dialog functions
+typedef int (__stdcall* CTM_YesNo_Init_t)(void* menuManager);
+static CTM_YesNo_Init_t CTM_YesNo_Init = (CTM_YesNo_Init_t)0x47D070;
+
+typedef int (__stdcall* VsResultMenu_Create_t)(int skipQuickRetry);
+static VsResultMenu_Create_t VsResultMenu_Create_Original = (VsResultMenu_Create_t)0x482CD0;
+
 
 // The team order is always (initial) point character first
 static unordered_map<uint32_t, pair<uint32_t, uint32_t>> teamOrders =
@@ -663,20 +676,254 @@ extern "C" void VsResultMenu_FinalizeSelection_Hook(void* manager, void* tag) {
     emitCall(0x482E80);
 }
 
-// Hook 3: BattleScene_ApplyResultSelection - Inject replay export before scene transition
+// Hook 3: BattleScene_ApplyResultSelection / BattleScene_PostMatchTransition
+// NOTE: These are the SAME function at 0x439420! We need to handle both cases.
+// This hook replaces the function entry, so we need to manually call the original
+// and handle the VsResultMenu_Create call site ourselves.
 extern "C" void BattleScene_ApplyResultSelection_Hook(uint32_t inputState) {
-    // Check if state is 0 (ONCE_AGAIN)
+    // CRITICAL: Add logging to see if this hook is even being called
+    LOG("BattleScene_ApplyResultSelection_Hook: Called with inputState=%u", inputState);
+    
+    // Check if state is 0 (ONCE_AGAIN) - this is for replay export
     if (inputState == 0 && netManPtr) {
         // Export replay before scene transition
         try {
+            LOG("BattleScene_ApplyResultSelection_Hook: Exporting replay");
             netManPtr->exportInputs();
         } catch (...) {
             // Non-fatal - continue with scene transition
+            LOG("BattleScene_ApplyResultSelection_Hook: Replay export failed");
         }
     }
     
-    // Call original function
-    emitCall(0x439420);
+    // TEMPORARILY DISABLED: Calling original function causes recursion
+    // We need to save the original function bytes and call them directly
+    // For now, just return to prevent crash
+    LOG("BattleScene_ApplyResultSelection_Hook: WARNING - Original function call disabled to prevent recursion");
+    return;
+    
+    // TODO: Save original function prologue and call it properly
+    // emitCall(0x439420); // This causes infinite recursion!
+}
+
+// Hook 4: BattleScene_PostMatchTransition - Inject YES/NO dialog BEFORE VsResultMenu_Create
+// This hook intercepts the VsResultMenu_Create call site (0x4396C5) to show YES/NO dialog first
+// The call is: VsResultMenu_Create(battleContext->resultMenuSkipFlag != 0)
+// We'll intercept this call and check if we should show YES/NO dialog instead
+// CRITICAL: Must use __stdcall to match VsResultMenu_Create calling convention
+extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook(int skipQuickRetry) {
+    // TEMPORARY: Disable dialog creation to isolate crash
+    // TODO: Re-enable once we understand the crash cause
+    // For now, just log and call original function
+    
+    // CRITICAL: Add defensive checks and try-catch to prevent crashes
+    try {
+        // Validate globals before accessing
+        if (!gVsResultMenuMode || !gStoryModeClearFlag) {
+            // Globals not initialized - call original function
+            LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Globals not initialized, calling original");
+            return VsResultMenu_Create_Original(skipQuickRetry);
+        }
+        
+        LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: skipQuickRetry=%d, mode=%d, storyFlag=%d", 
+            skipQuickRetry, *gVsResultMenuMode, *gStoryModeClearFlag);
+        
+        // TEMPORARILY DISABLED: Dialog creation causing crash
+        // Only show YES/NO dialog for offline versus (not network/replay/story)
+        /*
+        if (*gVsResultMenuMode == 0 && *gStoryModeClearFlag == 0) {
+            // Check if we haven't already shown the dialog
+            if (!gOnceAgainYesNoDialogActive) {
+                // Only show dialog if skipQuickRetry is false (normal flow)
+                if (skipQuickRetry == 0) {
+                    LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Attempting to create YES/NO dialog");
+                    
+                    // Allocate memory for CTM_YesNo structure (0xC8 bytes)
+                    void* dialogMem = operator new(0xC8);
+                    if (dialogMem) {
+                        // CRITICAL: Zero the memory before calling CTM_YesNo_Init
+                        // The function expects initialized memory and accesses various offsets
+                        memset(dialogMem, 0, 0xC8);
+                        
+                        // Initialize the YES/NO dialog using CTM_YesNo_Init
+                        // This creates a COMMON_YESNO_MENU with YES/NO options
+                        // Wrap in try-catch to catch any crashes from invalid memory access
+                        int dialogResult = 0;
+                        try {
+                            dialogResult = CTM_YesNo_Init(dialogMem);
+                            LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: CTM_YesNo_Init returned %p", (void*)dialogResult);
+                        } catch (...) {
+                            // Dialog initialization failed - clean up and fall through to normal flow
+                            LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: CTM_YesNo_Init threw exception");
+                            operator delete(dialogMem);
+                            return VsResultMenu_Create_Original(skipQuickRetry);
+                        }
+                        
+                        // Check if initialization succeeded (returns pointer to dialogMem)
+                        if (dialogResult && dialogResult == reinterpret_cast<int>(dialogMem)) {
+                            gOnceAgainYesNoDialog = dialogMem;
+                            gOnceAgainYesNoDialogActive = true;
+                            gOnceAgainYesNoDialogResult = -1; // No selection yet
+                            
+                            LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Dialog created successfully, skipping VsResultMenu_Create");
+                            
+                            // Set message text to "ONCE AGAIN?" if possible
+                            // TODO: Access dialog vtable to set message text
+                            
+                            // SKIP VsResultMenu_Create call - don't create VS RESULTS MENU yet
+                            // We'll create it later if user selects NO
+                            // Return 0 to indicate no menu handle created
+                            return 0;
+                        } else {
+                            // Dialog creation failed - clean up
+                            LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Dialog creation failed (result=%p)", (void*)dialogResult);
+                            operator delete(dialogMem);
+                        }
+                    } else {
+                        LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Failed to allocate dialog memory");
+                    }
+                }
+            }
+        }
+        */
+    } catch (...) {
+        // Any exception - fall through to normal flow
+        // This prevents crashes from propagating
+        LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Exception caught, calling original");
+    }
+    
+    // Normal flow - call original VsResultMenu_Create
+    LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Calling original VsResultMenu_Create with skipQuickRetry=%d", skipQuickRetry);
+    int result = 0;
+    try {
+        result = VsResultMenu_Create_Original(skipQuickRetry);
+        LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: VsResultMenu_Create_Original returned %d", result);
+    } catch (...) {
+        LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: VsResultMenu_Create_Original threw exception!");
+        throw; // Re-throw to see if it's caught by outer try-catch
+    }
+    LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Returning %d", result);
+    return result;
+}
+
+// Hook 5: BattleScene_ProcessResultState - Handle case 20 for YES/NO dialog
+// This hook intercepts the state machine dispatcher to handle our custom case 20
+// before it enters the switch statement
+extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleContext, int sceneState, char forceSkipQuickRetry, int hasMenuChoice, int a6) {
+    // CRITICAL: Add defensive checks to prevent crashes
+    try {
+        if (!battleContext) {
+            // Invalid battleContext - call original function
+            typedef void (__stdcall* BattleScene_ProcessResultState_t)(void*, void*, int, char, int, int);
+            static BattleScene_ProcessResultState_t original = (BattleScene_ProcessResultState_t)0x43A4C0;
+            original(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6);
+            return;
+        }
+        
+        int* bc = (int*)battleContext;
+        
+        // Validate memory before accessing preMatchWords[21]
+        #ifdef _WIN32
+        MEMORY_BASIC_INFORMATION mbi;
+        if (VirtualQuery(&bc[21], &mbi, sizeof(mbi)) == 0) {
+            // Invalid memory - call original function
+            typedef void (__stdcall* BattleScene_ProcessResultState_t)(void*, void*, int, char, int, int);
+            static BattleScene_ProcessResultState_t original = (BattleScene_ProcessResultState_t)0x43A4C0;
+            original(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6);
+            return;
+        }
+        #endif
+        
+        int state = bc[21]; // preMatchWords[21]
+        
+        // TEMPORARILY DISABLED: Dialog handling causing crash
+        // Check if YES/NO dialog was just created and we need to set state to 20
+        /*
+        if (gOnceAgainYesNoDialogActive && gOnceAgainYesNoDialog && state == 0) {
+            // Dialog was created, set state to 20 to enter dialog handling
+            bc[21] = 20;
+            state = 20;
+            gBattleContextForDialog = battleContext; // Store for later use
+        }
+        
+        // Check if we're in our custom YES/NO dialog state (20)
+        if (state == 20 && gOnceAgainYesNoDialogActive && gOnceAgainYesNoDialog) {
+        // Handle YES/NO dialog input
+        // TODO: Update dialog and check for YES/NO selection
+        // For now, this is a placeholder - need to implement dialog update/input checking
+        
+        // The dialog should be updated each frame and we need to check its state
+        // This requires accessing the dialog's vtable or state fields
+        // The dialog structure has a vtable at offset 0, and update function at vtable[5] (offset 0x14)
+        // We can call the update function: (*(void***)gOnceAgainYesNoDialog)[5](gOnceAgainYesNoDialog)
+        
+        // TODO: Call dialog update function and check selection state
+        // For now, placeholder - need to reverse engineer dialog structure
+        
+        if (gOnceAgainYesNoDialogResult == 1) { // YES - Instant rematch
+            // Export replay before rematch
+            if (netManPtr) {
+                try {
+                    netManPtr->exportInputs();
+                } catch (...) {
+                    // Non-fatal - continue with rematch
+                }
+            }
+            
+            // Go directly to result menu for rematch (skip VS RESULTS MENU)
+            bc[21] = 10; // preMatchWords[21] = 10 (result menu state)
+            
+            // Clean up dialog
+            if (gOnceAgainYesNoDialog) {
+                operator delete(gOnceAgainYesNoDialog);
+                gOnceAgainYesNoDialog = nullptr;
+            }
+            gOnceAgainYesNoDialogActive = false;
+            gOnceAgainYesNoDialogResult = -1;
+            gBattleContextForDialog = nullptr;
+            
+            // Call original function with new state (10)
+            typedef void (__stdcall* BattleScene_ProcessResultState_t)(void*, void*, int, char, int, int);
+            static BattleScene_ProcessResultState_t original = (BattleScene_ProcessResultState_t)0x43A4C0;
+            original(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6);
+            return;
+            
+        } else if (gOnceAgainYesNoDialogResult == 0) { // NO - Show VS RESULTS MENU
+            // Create VS RESULTS MENU now (user said NO to instant rematch)
+            VsResultMenu_Create_Original(0); // skipQuickRetry = false
+            
+            // Continue to win quote flow
+            bc[21] = 0; // preMatchWords[21] = 0 (win quote state)
+            
+            // Clean up dialog
+            if (gOnceAgainYesNoDialog) {
+                operator delete(gOnceAgainYesNoDialog);
+                gOnceAgainYesNoDialog = nullptr;
+            }
+            gOnceAgainYesNoDialogActive = false;
+            gOnceAgainYesNoDialogResult = -1;
+            gBattleContextForDialog = nullptr;
+            
+            // Call original function with state 0 (win quote)
+            typedef void (__stdcall* BattleScene_ProcessResultState_t)(void*, void*, int, char, int, int);
+            static BattleScene_ProcessResultState_t original = (BattleScene_ProcessResultState_t)0x43A4C0;
+            original(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6);
+            return;
+        }
+        // Otherwise, continue waiting for dialog input - don't call original yet
+        // The dialog will be updated/rendered by the game's normal menu system
+        return;
+        }
+        */
+    } catch (...) {
+        // Exception caught - call original function to prevent crash
+        LOG("BattleScene_ProcessResultState_Hook: Exception caught, calling original");
+    }
+    
+    // Normal flow - call original function
+    typedef void (__stdcall* BattleScene_ProcessResultState_t)(void*, void*, int, char, int, int);
+    static BattleScene_ProcessResultState_t original = (BattleScene_ProcessResultState_t)0x43A4C0;
+    original(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6);
 }
 
 // Hook patches
@@ -700,6 +947,25 @@ const AsmList hookVsResultMenuFinalizeSelection = {
 const AsmList hookBattleSceneApplyResultSelection = {
     { (void*)0x439420, {
         0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x439420, &BattleScene_ApplyResultSelection_Hook)),
+        0x90  // nop
+    } }
+};
+
+// Hook BattleScene_PostMatchTransition - Inject YES/NO dialog before VsResultMenu_Create
+// Hook at the VsResultMenu_Create call site (0x4396C5) to intercept the call
+// This avoids conflicts with BattleScene_ApplyResultSelection hook at 0x439420
+const AsmList hookBattleScenePostMatchTransition = {
+    { (void*)0x4396C5, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x4396C5, &BattleScene_PostMatchTransition_VsResultMenuCreate_Hook)),
+        0x90  // nop (replaces original call instruction)
+    } }
+};
+
+// Hook BattleScene_ProcessResultState - Handle case 20 for YES/NO dialog
+// Hook at function entry to intercept before switch statement
+const AsmList hookBattleSceneProcessResultState = {
+    { (void*)0x43A4C0, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x43A4C0, &BattleScene_ProcessResultState_Hook)),
         0x90  // nop
     } }
 };

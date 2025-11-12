@@ -6,12 +6,31 @@
 
 #include <cstring>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace cccaster::plugin {
 namespace {
 
 bool check_result_menu_active() {
     // Result menu is active when game mode is RETRY (5) / WinScreenMenu
-    // CC_GAME_MODE_ADDR is a macro that expands to a pointer literal
+    // CC_GAME_MODE_ADDR is a macro that expands to a pointer literal (0x54EEE8)
+#ifdef _WIN32
+    // Defensive check: validate memory is readable before accessing
+    // Use VirtualQuery to check if the memory page is valid
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery(CC_GAME_MODE_ADDR, &mbi, sizeof(mbi)) == 0) {
+        return false; // Invalid memory region
+    }
+    
+    // Check if memory is committed and readable
+    if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)) == 0) {
+        return false; // Memory not readable
+    }
+#endif
+    
+    // Safe to access - check game mode
     return *CC_GAME_MODE_ADDR == CC_GAME_MODE_RETRY;
 }
 
@@ -71,7 +90,21 @@ ResultMenuState MenuService::get_result_menu_state_impl(void) {
         return RESULT_MENU_STATE_UNKNOWN;
     }
 
-    return map_menu_index_to_state(AsmHacks::currentMenuIndex);
+#ifdef _WIN32
+    // Defensive check: validate memory before accessing currentMenuIndex
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery(&AsmHacks::currentMenuIndex, &mbi, sizeof(mbi)) == 0) {
+        return RESULT_MENU_STATE_UNKNOWN; // Invalid memory
+    }
+    
+    if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)) == 0) {
+        return RESULT_MENU_STATE_UNKNOWN; // Memory not readable
+    }
+#endif
+
+    // Safe to access menu index
+    uint32_t menu_index = AsmHacks::currentMenuIndex;
+    return map_menu_index_to_state(menu_index);
 }
 
 bool MenuService::is_result_menu_active_impl(void) {
@@ -100,6 +133,18 @@ bool MenuService::get_result_menu_tag_impl(char* buffer, size_t buffer_size) {
 }
 
 int32_t MenuService::get_current_menu_index_impl(void) {
+#ifdef _WIN32
+    // Defensive check: validate memory before accessing
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery(&AsmHacks::currentMenuIndex, &mbi, sizeof(mbi)) == 0) {
+        return -1; // Invalid memory
+    }
+    
+    if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)) == 0) {
+        return -1; // Memory not readable
+    }
+#endif
+
     return static_cast<int32_t>(AsmHacks::currentMenuIndex);
 }
 

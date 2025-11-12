@@ -58,6 +58,7 @@ void VsResultMenuManager_Update(CVSResultMenuManager* manager);
 - Monitor `manager->state` transitions
 - Detect when `ONCE_AGAIN` tag is highlighted/selected
 - Can inject replay export logic before state `0` transition
+- Downstream state transitions are published through `MenuDispatcher_HandleState` (`0x4D8810`)
 
 **Reference Pattern:** Extended Training Mode hooks `UpdateMenu` at `0x0047e1da` to process custom submenu updates.
 
@@ -120,6 +121,7 @@ void BattleScene_ApplyResultSelection(uint32_t inputState);
 - Call replay export routine before scene transition
 - Ensure win counters persist (`gPlayer1WinCount`/`gPlayer2WinCount` not reset)
 - Preserve music/screen transition timing
+- The rematch branch ultimately triggers `StageSelection_BeginTransition` (`0x440F50`), so any additional setup should happen before that call
 
 **Reference Pattern:** Extended Training Mode patches scene transitions in `UpdateGame` dispatcher.
 
