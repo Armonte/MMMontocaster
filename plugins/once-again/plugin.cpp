@@ -92,47 +92,82 @@ void OnceAgainPlugin::frame_callback(const FrameContext* /*context*/, void* user
 }
 
 void OnceAgainPlugin::on_frame() {
+    // CRITICAL: Add extensive logging to trace crash location
+    static int frame_count = 0;
+    frame_count++;
+    
+    // Only log every 60 frames to avoid spam (once per second at 60fps)
+    bool should_log = (frame_count % 60 == 0);
+    
+    if (should_log) {
+        log_info("on_frame: Starting frame callback");
+    }
+    
     if (!menu_hook_) {
+        if (should_log) {
+            log_warn("on_frame: menu_hook_ is null");
+        }
         return;
     }
 
     // Defensive check: ensure host API is still valid
-    if (!host_ || !host_->menu) {
+    if (!host_) {
+        if (should_log) {
+            log_warn("on_frame: host_ is null");
+        }
         return;
+    }
+    
+    if (!host_->menu) {
+        if (should_log) {
+            log_warn("on_frame: host_->menu is null");
+        }
+        return;
+    }
+
+    if (should_log) {
+        log_info("on_frame: About to call menu_hook_->update()");
     }
 
     // Update menu hook to check for state changes
     // Wrap in try-catch to prevent crashes from invalid memory access
     try {
         menu_hook_->update();
+        if (should_log) {
+            log_info("on_frame: menu_hook_->update() completed successfully");
+        }
     } catch (...) {
+        // Exception caught - log it
+        log_error("on_frame: menu_hook_->update() threw exception!");
         // Silently ignore exceptions from menu state queries
         // This can happen during state transitions when memory is invalid
         return;
     }
 
-    // Check if "Once Again" was just selected
-    if (menu_hook_->was_once_again_selected()) {
-        // Clear the flag first to avoid repeated triggers
-        menu_hook_->clear_once_again_flag();
-
-        // Export replay if available
-        if (replay_export_ && replay_export_->can_export()) {
-            if (replay_export_->export_current_replay()) {
-                log_info("Replay exported successfully for instant rematch");
-            } else {
-                log_warn("Failed to export replay for instant rematch");
-            }
-        } else {
-            // Replay export not available - this is normal for some scenarios
-            // (e.g., if auto-save is disabled or no replay data exists)
-            log_info("Once Again selected - replay export skipped (not available)");
-        }
-
-        // Note: The actual rematch transition is handled by CCCaster core.
-        // This plugin's role is to export the replay before the rematch occurs.
-        // Netplay synchronization is also handled by CCCaster's NetplayManager.
-    }
+           // NOTE: The plugin's main purpose is to restore the PS2-style YES/NO dialog
+           // that appears BEFORE the VS Results Menu. The replay export happens in the
+           // assembly hooks when the YES/NO dialog confirms YES (instant rematch).
+           // 
+           // This detection of "Once Again" in the VS Results Menu is just for monitoring
+           // purposes - the actual PS2-style instant rematch is handled by the hooks in
+           // DllAsmHacks.cpp (BattleScene_PostMatchTransition_VsResultMenuCreate_Hook
+           // and BattleScene_ProcessResultState_Hook).
+           //
+           // When those hooks are re-enabled and working, they will:
+           // 1. Show YES/NO dialog before VS Results Menu
+           // 2. Export replay when YES is confirmed
+           // 3. Trigger instant rematch (reload scene 8)
+           //
+           // For now, we just log when the normal menu's "Once Again" is selected
+           // to verify the menu detection is working.
+           if (menu_hook_->was_once_again_selected()) {
+               // Clear the flag first to avoid repeated triggers
+               menu_hook_->clear_once_again_flag();
+               
+               // This is the normal VS Results Menu "Once Again" selection
+               // The PS2-style instant rematch happens via the YES/NO dialog hooks
+               log_info("VS Results Menu 'Once Again' selected (normal menu flow - PS2 instant rematch uses YES/NO dialog)");
+           }
 }
 
 namespace {

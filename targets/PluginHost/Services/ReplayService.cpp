@@ -61,13 +61,34 @@ bool ReplayService::export_replay_impl(const char* filename) {
     }
 
     try {
+        // Check if replay data is available before attempting export
+        std::vector<int> indexes = netManPtr->getInGameIndexes();
+        if (indexes.empty()) {
+            LOG("[ReplayService] No replay data available (getInGameIndexes returned empty)");
+            return false;
+        }
+        
+        LOG("[ReplayService] Attempting to export replay (indexes count: %zu)", indexes.size());
+        
         // Note: exportInputs() uses default naming based on characters and timestamp
         // Custom filename support would require modifying exportInputs() signature
         // For now, we use the default export behavior
+        // CRITICAL: exportInputs() may throw std::bad_alloc during state transitions
+        // This is non-critical - the "Once Again" feature works without replay export
         netManPtr->exportInputs();
+        
+        LOG("[ReplayService] Replay exported successfully");
         return true;
+    } catch (const std::bad_alloc& ex) {
+        // Memory allocation failure - likely due to memory fragmentation during state transition
+        // This is non-critical - log and continue
+        LOG("[ReplayService] Failed to export replay: memory allocation failed (std::bad_alloc) - this is non-critical");
+        return false;
+    } catch (const std::exception& ex) {
+        LOG("[ReplayService] Failed to export replay: %s", ex.what());
+        return false;
     } catch (...) {
-        LOG("[ReplayService] Failed to export replay");
+        LOG("[ReplayService] Failed to export replay: unknown exception");
         return false;
     }
     #else

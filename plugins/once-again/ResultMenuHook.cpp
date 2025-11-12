@@ -1,5 +1,7 @@
 #include "ResultMenuHook.hpp"
 
+#include <cstdio>
+
 #ifdef _WIN32
 #include <windows.h>
 
@@ -22,7 +24,15 @@ ResultMenuHook::ResultMenuHook(const PluginHostAPI* host)
 ResultMenuHook::~ResultMenuHook() = default;
 
 void ResultMenuHook::update() {
+    // CRITICAL: Add extensive logging to trace crash location
+    static int update_count = 0;
+    update_count++;
+    bool should_log = (update_count % 60 == 0); // Log every 60 calls
+    
     if (!host_ || !host_->menu) {
+        if (should_log) {
+            // Can't log here - no host/logger available
+        }
         return;
     }
 
@@ -30,10 +40,17 @@ void ResultMenuHook::update() {
     // Only proceed if we're in RETRY mode (result menu mode)
     // This prevents crashes during transitions (win screen, etc.)
 #ifdef _WIN32
+    if (should_log && host_->logger && host_->logger->info) {
+        host_->logger->info("once-again", "ResultMenuHook::update: Starting, checking game mode");
+    }
+    
     // Validate memory before accessing game mode
     MEMORY_BASIC_INFORMATION mbi;
     if (VirtualQuery(CC_GAME_MODE_ADDR, &mbi, sizeof(mbi)) == 0) {
         // Invalid memory - reset state and return
+        if (should_log && host_->logger && host_->logger->warn) {
+            host_->logger->warn("once-again", "ResultMenuHook::update: VirtualQuery failed for CC_GAME_MODE_ADDR");
+        }
         was_result_menu_active_ = false;
         last_menu_state_ = RESULT_MENU_STATE_UNKNOWN;
         frames_since_menu_activated_ = 0;
@@ -42,6 +59,9 @@ void ResultMenuHook::update() {
     
     if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)) == 0) {
         // Memory not readable - reset state and return
+        if (should_log && host_->logger && host_->logger->warn) {
+            host_->logger->warn("once-again", "ResultMenuHook::update: Memory not readable for CC_GAME_MODE_ADDR");
+        }
         was_result_menu_active_ = false;
         last_menu_state_ = RESULT_MENU_STATE_UNKNOWN;
         frames_since_menu_activated_ = 0;
@@ -52,8 +72,16 @@ void ResultMenuHook::update() {
     uint32_t game_mode = 0;
     try {
         game_mode = *CC_GAME_MODE_ADDR;
+        if (should_log && host_->logger && host_->logger->info) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "ResultMenuHook::update: game_mode=%u", game_mode);
+            host_->logger->info("once-again", msg);
+        }
     } catch (...) {
         // Memory access failed - reset and return
+        if (host_->logger && host_->logger->error) {
+            host_->logger->error("once-again", "ResultMenuHook::update: Exception reading game_mode!");
+        }
         was_result_menu_active_ = false;
         last_menu_state_ = RESULT_MENU_STATE_UNKNOWN;
         frames_since_menu_activated_ = 0;
@@ -68,10 +96,17 @@ void ResultMenuHook::update() {
         frames_since_menu_activated_ = 0;
         return;
     }
+    
+    if (should_log && host_->logger && host_->logger->info) {
+        host_->logger->info("once-again", "ResultMenuHook::update: In RETRY mode, proceeding to menu API calls");
+    }
 #endif
 
     // Defensive checks: validate function pointers before calling
     if (!host_->menu->is_result_menu_active || !host_->menu->get_result_menu_state) {
+        if (should_log && host_->logger && host_->logger->warn) {
+            host_->logger->warn("once-again", "ResultMenuHook::update: Menu API function pointers are null");
+        }
         return;
     }
 
@@ -79,10 +114,22 @@ void ResultMenuHook::update() {
     
     // Now safe to call menu API - we're in RETRY mode
     // Wrap memory accesses in try-catch to handle invalid memory during transitions
+    if (should_log && host_->logger && host_->logger->info) {
+        host_->logger->info("once-again", "ResultMenuHook::update: About to call is_result_menu_active()");
+    }
+    
     try {
         is_active = host_->menu->is_result_menu_active();
+        if (should_log && host_->logger && host_->logger->info) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "ResultMenuHook::update: is_result_menu_active() returned %d", is_active ? 1 : 0);
+            host_->logger->info("once-again", msg);
+        }
     } catch (...) {
         // Memory access failed - likely during state transition
+        if (host_->logger && host_->logger->error) {
+            host_->logger->error("once-again", "ResultMenuHook::update: Exception in is_result_menu_active()!");
+        }
         // Reset state and return early
         was_result_menu_active_ = false;
         last_menu_state_ = RESULT_MENU_STATE_UNKNOWN;

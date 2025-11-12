@@ -34,3 +34,4 @@ The plugin consumes the new SDK surfaces defined in:
 - `pluginsdk/include/cccaster/replay.h` – `export_replay`, auto-save queries.
 
 See `ReplayExport.cpp` and `ResultMenuHook.cpp` for the integration points. The plugin will continue to evolve as issues #11, #21, and #30 are completed.
+

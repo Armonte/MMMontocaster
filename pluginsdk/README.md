@@ -101,3 +101,4 @@ Passing `NULL` (or an empty string) to `export_replay` uses the game’s default
 - The headers avoid STL usage and stick to C linkage so they can be consumed from C or C++ without additional wrappers.
 
 For a reference implementation, examine the sample code in `CCCaster/plugins/replay-takeover/` and the new Once Again plugin under `CCCaster/plugins/once-again/` as it matures.
+

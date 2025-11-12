@@ -77,3 +77,4 @@ typedef struct _CVSResultMenuManager {
 }
 #endif
 
+
