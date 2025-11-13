@@ -248,26 +248,15 @@ static bool ShouldShowOnceAgainDialog(int* preMatchWords, char forceSkipQuickRet
     LOG("ShouldShowOnceAgainDialog: vsMode=%u (VS/RETRY mode) - continuing checks", vsMode);
 
     const int state = preMatchWords[21];
-    const int field17 = preMatchWords[17];
-    const int field20 = preMatchWords[20];
 
-    LOG("ShouldShowOnceAgainDialog: state=%d field17=%d field20=%d", state, field17, field20);
+    LOG("ShouldShowOnceAgainDialog: state=%d - checking if state is 0", state);
 
     if (state != 0) {
         LOG("ShouldShowOnceAgainDialog: state=%d (not 0) - returning false", state);
         return false;
     }
 
-    if (field17 < 30) {
-        LOG("ShouldShowOnceAgainDialog: field17=%d (< 30) - returning false", field17);
-        return false;
-    }
-
-    if (field20 <= 300) {
-        LOG("ShouldShowOnceAgainDialog: field20=%d (<= 300) - returning false", field20);
-        return false;
-    }
-
+    LOG("ShouldShowOnceAgainDialog: All checks passed - returning true!");
     return true;
 }
 
@@ -1111,6 +1100,208 @@ static void BattleScene_ProcessResultState_Hook_Impl(void* ctx, void* battleCont
     BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6);
 }
 
+// ============================================================================
+// NEW C++ REPLACEMENT FUNCTION (Ready to switch to - currently disabled)
+// ============================================================================
+// This is a complete C++ replacement for BattleScene_ProcessResultState that
+// eliminates all register restoration complexity. To enable it, change the
+// MinHook target in DllMain.cpp from BattleScene_ProcessResultState_Hook_Wrapper
+// to BattleScene_ProcessResultState_Replacement.
+//
+// Function signature matches __userpurge calling convention:
+//   ecx = sceneContext (ctx)
+//   edx = battleContext
+//   eax = sceneState
+//   stack: [ret][forceSkipQuickRetry][a5][a6][gap][hasMenuChoice]
+// ============================================================================
+
+// Note: We don't need function pointers for individual case handlers because:
+// 1. Many use non-standard calling conventions (__usercall, __userpurge) that are hard to call from C++
+// 2. The original function already handles all cases correctly (except case 20)
+// 3. We only need to handle case 20 ourselves, then delegate everything else to the original
+
+// Forward declaration
+static void BattleScene_ProcessResultState_Replacement_Impl(
+    void* battleContext,
+    void* sceneContext,
+    int sceneState,
+    char forceSkipQuickRetry,
+    int hasMenuChoice,
+    int a6);
+
+// Wrapper to convert from __userpurge calling convention to __cdecl
+// This allows MinHook to call our C++ replacement function
+extern "C" __attribute__((naked)) void BattleScene_ProcessResultState_Replacement_Wrapper() {
+    __asm__ __volatile__(
+        ".intel_syntax noprefix;"
+        // At entry: ecx=sceneContext, edx=battleContext, eax=sceneState
+        // Stack: [esp+0x00]=ret, [esp+0x04]=forceSkip, [esp+0x08]=a5, [esp+0x0C]=a6, [esp+0x14]=hasMenu
+        
+        // Extract stack parameters
+        "mov ebx, [esp+0x14];"  // hasMenuChoice
+        "mov esi, [esp+0x0C];"  // a6
+        "mov edi, [esp+0x04];"  // forceSkipQuickRetry
+        
+        // Push parameters in __cdecl order: (battleContext, sceneContext, sceneState, forceSkip, hasMenu, a6)
+        "push esi;"      // a6
+        "push ebx;"      // hasMenuChoice
+        "push edi;"      // forceSkipQuickRetry (char, but pushed as int)
+        "push eax;"      // sceneState
+        "push ecx;"      // sceneContext
+        "push edx;"      // battleContext
+        
+        // Call C++ replacement function
+        "call %P0;"
+        
+        // Clean up stack: 6 parameters * 4 bytes = 24 bytes
+        "add esp, 24;"
+        
+        // Return with original stack cleanup (retn 0Ch = 12 bytes)
+        // The original function uses retn 0Ch because the caller pushes parameters
+        // MinHook will handle the actual return, but we need to match the convention
+        "ret 12;"
+        ".att_syntax;"
+        :
+        : "i"(BattleScene_ProcessResultState_Replacement_Impl)
+        : "memory", "eax", "ebx", "ecx", "edx", "esi", "edi"
+    );
+}
+
+// C++ Replacement Function - Pure C++ implementation, no assembly wrapper needed
+static void BattleScene_ProcessResultState_Replacement_Impl(
+    void* battleContext,
+    void* sceneContext,
+    int sceneState,
+    char forceSkipQuickRetry,
+    int hasMenuChoice,
+    int a6) {
+    
+    if (!battleContext) {
+        LOG("BattleScene_ProcessResultState_Replacement: battleContext is null!");
+        return;
+    }
+    
+    try {
+        int* bc = reinterpret_cast<int*>(battleContext);
+        int state = bc[21]; // preMatchWords[21] is the state variable
+        
+        LOG("BattleScene_ProcessResultState_Replacement: state=%d sceneState=%d forceSkip=%d hasMenu=%d a6=%d",
+            state, sceneState, forceSkipQuickRetry, hasMenuChoice, a6);
+        
+        // Attempt to create dialog when conditions are met and we are in the initial state
+        if (!gOnceAgainYesNoDialogActive && ShouldShowOnceAgainDialog(bc, forceSkipQuickRetry, hasMenuChoice)) {
+            LOG("BattleScene_ProcessResultState_Replacement: ShouldShowOnceAgainDialog -> true");
+            if (CreateOnceAgainDialog(bc)) {
+                bc[21] = 20;
+                state = 20;
+                LOG("BattleScene_ProcessResultState_Replacement: dialog created; forcing state=20");
+            } else {
+                LOG("BattleScene_ProcessResultState_Replacement: dialog creation failed");
+            }
+        }
+        
+        // Update state if dialog was created
+        if (gOnceAgainYesNoDialogActive && gOnceAgainYesNoDialog) {
+            gBattleContextForDialog = bc;
+            if (state == 0) {
+                bc[21] = 20;
+                state = 20;
+                LOG("BattleScene_ProcessResultState_Replacement: adjusted state 0 -> 20 while dialog active");
+            }
+        }
+        
+        // Handle state machine - ONLY case 20 is handled here, everything else delegates to original
+        if (state == 20) {
+            // CUSTOM CASE: Handle YES/NO Dialog
+            if (!gOnceAgainYesNoDialogActive || !gOnceAgainYesNoDialog) {
+                LOG("BattleScene_ProcessResultState_Replacement: case 20 but dialog not active, delegating to original");
+                // Delegate to original (will fall through to default case)
+                if (BattleScene_ProcessResultState_Original) {
+                    BattleScene_ProcessResultState_Original(
+                        battleContext,
+                        sceneContext,
+                        sceneState,
+                        forceSkipQuickRetry,
+                        hasMenuChoice,
+                        a6);
+                }
+                return;
+            }
+            
+            UpdateOnceAgainDialog();
+            
+            if (gOnceAgainYesNoDialogResult == 1) { // YES selected
+                LOG("BattleScene_ProcessResultState_Replacement: dialog YES selected -> rematch / state=10");
+                bc[21] = 10;
+                DestroyOnceAgainDialog();
+                try {
+                    if (netManPtr) {
+                        netManPtr->exportInputs();
+                        LOG("BattleScene_ProcessResultState_Replacement: exportInputs succeeded (YES)");
+                    }
+                } catch (...) {
+                    LOG("BattleScene_ProcessResultState_Replacement: exportInputs threw");
+                }
+                // Delegate to original function to handle state 10 (rematch)
+                if (BattleScene_ProcessResultState_Original) {
+                    BattleScene_ProcessResultState_Original(
+                        battleContext,
+                        sceneContext,
+                        sceneState,
+                        forceSkipQuickRetry,
+                        hasMenuChoice,
+                        a6);
+                }
+                return;
+            } else if (gOnceAgainYesNoDialogResult == 0) { // NO selected
+                LOG("BattleScene_ProcessResultState_Replacement: dialog NO selected -> returning to results");
+                VsResultMenu_Create_Original(0);
+                DestroyOnceAgainDialog();
+                bc[21] = 0;
+                // Delegate to original function to handle state 0 (normal flow)
+                if (BattleScene_ProcessResultState_Original) {
+                    BattleScene_ProcessResultState_Original(
+                        battleContext,
+                        sceneContext,
+                        sceneState,
+                        forceSkipQuickRetry,
+                        hasMenuChoice,
+                        a6);
+                }
+                return;
+            } else {
+                // Dialog still pending
+                RenderOnceAgainDialog();
+                LOG("BattleScene_ProcessResultState_Replacement: dialog pending result (state=%d)", bc[21]);
+                return; // Keep dialog active without advancing state machine
+            }
+        }
+        
+        // All other cases: delegate to original function
+        // The original function handles all calling conventions correctly for cases 0-18, 255, 1024, 1025, 10001-10002, 40000-40003
+        if (BattleScene_ProcessResultState_Original) {
+            BattleScene_ProcessResultState_Original(
+                battleContext,
+                sceneContext,
+                sceneState,
+                forceSkipQuickRetry,
+                hasMenuChoice,
+                a6);
+        }
+    } catch (...) {
+        LOG("BattleScene_ProcessResultState_Replacement: Exception caught, delegating to original");
+        if (BattleScene_ProcessResultState_Original) {
+            BattleScene_ProcessResultState_Original(
+                battleContext,
+                sceneContext,
+                sceneState,
+                forceSkipQuickRetry,
+                hasMenuChoice,
+                a6);
+        }
+    }
+}
+
 // Hook 2: VsResultMenu_FinalizeSelection - Intercept ONCE_AGAIN selection
 namespace {
     struct MenuString {
@@ -1305,8 +1496,14 @@ const AsmList hookBattleSceneProcessResultState = {
 // Setter for MinHook trampoline pointer (called from DllMain.cpp)
 void SetBattleSceneProcessResultStateOriginal(void* originalFunc) {
     gBattleScene_ProcessResultState_Original = originalFunc;
-    LOG("SetBattleSceneProcessResultStateOriginal: trampoline=%p", originalFunc);
+    // Also set the typed function pointer for the replacement function
+    BattleScene_ProcessResultState_Original = reinterpret_cast<BattleScene_ProcessResultState_t>(originalFunc);
+    LOG("SetBattleSceneProcessResultStateOriginal: trampoline=%p, typed=%p", originalFunc, BattleScene_ProcessResultState_Original);
 }
+
+// Typed function pointer (defined here, declared extern in header)
+// Used by the replacement function to call the original
+BattleScene_ProcessResultState_t BattleScene_ProcessResultState_Original = nullptr;
 
 } // namespace AsmHacks
 

@@ -1928,11 +1928,21 @@ struct DllMain
                 // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneProcessResultState )
                 //     WRITE_ASM_HACK ( hack );
                 // Install BattleScene_ProcessResultState hook via MinHook (case dispatcher)
+                // 
+                // TO SWITCH TO NEW C++ REPLACEMENT FUNCTION:
+                // Change the second parameter from:
+                //   (void*)&AsmHacks::BattleScene_ProcessResultState_Hook_Wrapper,
+                // to:
+                //   (void*)&AsmHacks::BattleScene_ProcessResultState_Replacement_Wrapper,
+                // 
+                // The replacement function eliminates register restoration complexity by
+                // handling case 20 in pure C++ and delegating all other cases to the original.
                 {
                     void* originalFunc = nullptr;
                     MH_STATUS hookStatus = MH_CreateHook(
                         (void*)0x43A4C0,  // BattleScene_ProcessResultState
-                        (void*)&AsmHacks::BattleScene_ProcessResultState_Hook_Wrapper,
+                        (void*)&AsmHacks::BattleScene_ProcessResultState_Hook_Wrapper,  // CURRENT: Assembly wrapper
+                        // (void*)&BattleScene_ProcessResultState_Replacement_Wrapper,  // NEW: C++ replacement (ready to switch)
                         &originalFunc     // Save the trampoline pointer
                     );
                     if (hookStatus != MH_OK) {
