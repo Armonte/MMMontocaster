@@ -21,7 +21,6 @@ namespace fs = std::filesystem;
 
 using namespace std;
 
-
 static int memwrite ( void *dst, const void *src, size_t len )
 {
     DWORD old, tmp;
@@ -994,54 +993,44 @@ extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleConte
 }
 
 // Hook 2: VsResultMenu_FinalizeSelection - Intercept ONCE_AGAIN selection
-extern "C" void VsResultMenu_FinalizeSelection_Trampoline(void* manager, void* tag) {
-    __asm__ __volatile__(
-        "movl %0, %%ecx;\n"
-        "pushl %1;\n"
-        "movl %2, %%eax;\n"
-        "call *%%eax;\n"
-        "addl $4, %%esp;\n"
-        :
-        : "r"(manager), "r"(tag), "i"(0x00482E86)
-        : "eax", "ecx", "memory"
-    );
+namespace {
+    struct MenuString {
+        int32_t base;
+        union {
+            char* pLongString;
+            char shortString[0x10];
+        };
+        int32_t length;
+        int32_t maxLength;
+    };
+
+    static const char* resolveMenuString(MenuString* menuString) {
+        if (!menuString) {
+            return nullptr;
+        }
+        if (menuString->maxLength < static_cast<int32_t>(sizeof(menuString->shortString))) {
+            return menuString->shortString;
+        }
+        return menuString->pLongString;
+    }
 }
 
-extern "C" void __attribute__((stdcall)) VsResultMenu_FinalizeSelection_Hook(void* tag) {
-    void* manager;
-    __asm__ __volatile__("movl %%ecx, %0" : "=r"(manager));
+static void VsResultMenu_FinalizeSelection_Hook_Impl_Internal(void* manager) {
     bool isOnceAgain = false;
-    if (tag) {
-        struct MenuString {
-            int32_t base;
-            union {
-                char* pLongString;
-                char shortString[0x10];
-            };
-            int32_t length;
-            int32_t maxLength;
-        };
+    MenuString* hoveredTag = manager ? reinterpret_cast<MenuString*>(reinterpret_cast<uintptr_t>(manager) + 0x20) : nullptr;
 
-        auto* menuTag = reinterpret_cast<MenuString*>(tag);
-        const char* tagStr = nullptr;
-        if (menuTag->maxLength < 0x10) {
-            tagStr = menuTag->shortString;
-        } else {
-            tagStr = menuTag->pLongString;
-        }
-
-        LOG("VsResultMenu_FinalizeSelection_Hook: manager=%p tag='%s' length=%d maxLength=%d",
-            manager,
-            tagStr ? tagStr : "<null>",
-            menuTag->length,
-            menuTag->maxLength);
-
-        if (tagStr) {
-            if (strcmp(tagStr, "ONCE_AGAIN") == 0 || strcmp(tagStr, "ONCE AGAIN") == 0 || strncmp(tagStr, "ONCE", 4) == 0) {
-                isOnceAgain = true;
-            }
+    const char* tagStr = resolveMenuString(hoveredTag);
+    if (tagStr) {
+        if (strcmp(tagStr, "ONCE_AGAIN") == 0 || strcmp(tagStr, "ONCE AGAIN") == 0 || strncmp(tagStr, "ONCE", 4) == 0) {
+            isOnceAgain = true;
         }
     }
+
+    LOG("VsResultMenu_FinalizeSelection_Hook: manager=%p tag='%s' length=%d maxLength=%d",
+        manager,
+        tagStr ? tagStr : "<null>",
+        hoveredTag ? hoveredTag->length : -1,
+        hoveredTag ? hoveredTag->maxLength : -1);
 
     if (isOnceAgain && netManPtr) {
         try {
@@ -1054,11 +1043,31 @@ extern "C" void __attribute__((stdcall)) VsResultMenu_FinalizeSelection_Hook(voi
         LOG("VsResultMenu_FinalizeSelection_Hook: not ONCE AGAIN (isOnceAgain=%d)", isOnceAgain ? 1 : 0);
     }
 
-    LOG("VsResultMenu_FinalizeSelection_Hook: gVsResultMenuInputState=%d skipGate=%d",
-        gVsResultMenuInputState,
-        manager ? *(int32_t*)((char*)manager + 0xD0) : -1);
+    const int32_t skipGate = manager ? *(int32_t*)(reinterpret_cast<uintptr_t>(manager) + 0xD0) : -1;
+    const uint32_t currentState = gVsResultMenuInputState ? *gVsResultMenuInputState : 0;
 
-    VsResultMenu_FinalizeSelection_Trampoline(manager, tag);
+    LOG("VsResultMenu_FinalizeSelection_Hook: gVsResultMenuInputState=%u skipGate=%d",
+        currentState,
+        skipGate);
+}
+
+extern "C" void __attribute__((naked)) VsResultMenu_FinalizeSelection_CallHook() {
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n"
+        "push esi\n"
+        "push edi\n"
+        "mov edi, dword ptr [0x00774C38]\n"
+        "pushad\n"
+        "push edi\n"
+        "call %0\n"
+        "add esp, 4\n"
+        "popad\n"
+        "jmp 0x00482E88\n"
+        ".att_syntax prefix\n"
+        :
+        : "r"(AsmHacks::VsResultMenu_FinalizeSelection_Hook_Impl_Internal)
+        : "eax"
+    );
 }
 
 // Hook 3: BattleScene_ApplyResultSelection - currently passthrough
@@ -1104,8 +1113,8 @@ const AsmList hookVsResultMenuInit = {
 
 const AsmList hookVsResultMenuFinalizeSelection = {
     { (void*)0x482E80, {
-        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x482E80, &VsResultMenu_FinalizeSelection_Hook)),
-        0x90
+        0xE9, INLINE_DWORD(AsmHacks::detail::rel32(0x482E80, &VsResultMenu_FinalizeSelection_CallHook)),
+        0x90, 0x90, 0x90
     } }
 };
 

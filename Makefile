@@ -14,6 +14,7 @@ BINARY = $(NAME).v$(VERSION)$(DOT_TAG).exe
 FOLDER = $(NAME)
 PALETTES_FOLDER = palettes
 DLL = hook$(DOT_TAG).dll
+DLL_DBG =
 LAUNCHER = launcher.exe
 UPDATER = updater.exe
 DEBUGGER = debugger.exe
@@ -117,9 +118,10 @@ LD_FLAGS = -m32 -static -lws2_32 -lpsapi -lwinpthread -lwinmm -lole32 -ldinput -
 
 # Install after make, set to 0 to disable install after make
 INSTALL = 1
+INSTALL_DIR ?= /mnt/c/games/caster
 
 # Build type flags
-DEBUG_FLAGS = -ggdb3 -O0 -fno-inline -D_GLIBCXX_DEBUG -DDEBUG
+DEBUG_FLAGS = -ggdb3 -O0 -fno-inline -D_GLIBCXX_DEBUG -DDEBUG -DLOGGING
 ifeq ($(OS),Windows_NT)
 	LOGGING_FLAGS = -s -Os -O2 -DLOGGING# -DRELEASE
 else
@@ -130,6 +132,10 @@ RELEASE_FLAGS = -s -Os -Ofast -fno-rtti -DNDEBUG -DRELEASE -DDISABLE_LOGGING -DD
 # Build type
 BUILD_TYPE = build_debug
 BUILD_PREFIX = $(BUILD_TYPE)_$(BRANCH)
+
+ifeq ($(BUILD_TYPE),build_debug)
+DLL_DBG = $(DLL).dbg
+endif
 
 # Default build target
 ifeq ($(OS),Windows_NT)
@@ -154,7 +160,7 @@ generator: tools/$(GENERATOR)
 palettes: $(PALETTES)
 
 
-$(ARCHIVE): $(BINARY) $(FOLDER)/$(DLL) $(FOLDER)/$(LAUNCHER) $(FOLDER)/$(UPDATER)
+$(ARCHIVE): $(BINARY) $(FOLDER)/$(DLL) $(if $(DLL_DBG),$(FOLDER)/$(DLL_DBG)) $(FOLDER)/$(LAUNCHER) $(FOLDER)/$(UPDATER)
 $(ARCHIVE): $(FOLDER)/unzip.exe $(FOLDER)/$(README) $(FOLDER)/$(CHANGELOG) $(FOLDER)/trials
 	@echo
 ifneq (,$(findstring release,$(MAKECMDGOALS)))
@@ -196,6 +202,13 @@ $(PLUGIN_DLL_ONCE_AGAIN): $(PLUGIN_OBJECTS_ONCE_AGAIN)
 	@echo
 	$(STRIP) $@
 	@echo
+
+ifeq ($(BUILD_TYPE),build_debug)
+$(FOLDER)/$(DLL_DBG): $(FOLDER)/$(DLL)
+	$(PREFIX)objcopy --only-keep-debug $< $@
+	$(PREFIX)objcopy --strip-debug $<
+	$(PREFIX)objcopy --add-gnu-debuglink=$@ $<
+endif
 
 $(FOLDER)/$(DLL): $(addprefix $(BUILD_PREFIX)/,$(DLL_OBJECTS)) res/rollback.o targets/CallDraw.s $(PLUGIN_DLLS) | $(FOLDER)
 	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
@@ -445,6 +458,12 @@ post-build: main-build
 	@echo ========== Post-build ==========
 	@echo
 	if [ $(INSTALL) = 1 ] && [ -s ./scripts/install ]; then ./scripts/install; fi;
+ifeq ($(BUILD_TYPE),build_debug)
+	if [ -d $(INSTALL_DIR) ]; then \
+		cp -f $(FOLDER)/$(DLL) $(INSTALL_DIR)/; \
+		if [ -n "$(DLL_DBG)" ] && [ -f $(FOLDER)/$(DLL_DBG) ]; then cp -f $(FOLDER)/$(DLL_DBG) $(INSTALL_DIR)/; fi; \
+	fi
+endif
 
 
 debug: post-build
@@ -469,12 +488,17 @@ ifneq (,$(findstring profile,$(MAKECMDGOALS)))
 main-build: pre-build
 	@$(MAKE) --no-print-directory target-profile BUILD_TYPE=build_debug STRIP=touch
 else
+ifneq (,$(findstring debug,$(MAKECMDGOALS)))
+main-build: pre-build
+	@$(MAKE) --no-print-directory target-debug BUILD_TYPE=build_debug STRIP=touch
+else
 ifeq ($(DEFAULT_TARGET),logging)
 main-build: pre-build
 	@$(MAKE) --no-print-directory target-logging BUILD_TYPE=build_logging
 else
 main-build: pre-build
 	@$(MAKE) --no-print-directory target-debug BUILD_TYPE=build_debug STRIP=touch
+endif
 endif
 endif
 endif

@@ -119,27 +119,74 @@ void ReplayCreator::load(ReplayCreator::ReplayFile* rf, char* fname) {
     }
 }
 void ReplayCreator::fixReplay(ReplayCreator::ReplayFile* rf, char* fname, MoveData* prior) {
-    //cout << "fix replay" << endl;
-    LOG( "asdf" );
+    if (!rf || !fname) {
+        LOG("ReplayCreator::fixReplay: invalid arguments (rf=%p fname=%p)", rf, fname);
+        return;
+    }
+
+    LOG("asdf");
+
     ifstream infile;
     infile.open(fname);
+    if (!infile.is_open()) {
+        LOG("ReplayCreator::fixReplay: failed to open input '%s'", fname);
+        return;
+    }
+
     string line;
-    getline(infile,line);
-    //cout << line << endl;
-    int rounds = stoi(line);
-    LOG( "line: %s", line);
-    //cout << "rounds " << rounds << endl;
-    LOG( "rounds: %d", rounds );
+    if (!getline(infile, line)) {
+        LOG("ReplayCreator::fixReplay: missing round count header");
+        return;
+    }
+
+    int rounds = 0;
+    try {
+        rounds = stoi(line);
+    } catch ( const std::exception& ex ) {
+        LOG("ReplayCreator::fixReplay: invalid round header '%s' (%s)", line.c_str(), ex.what());
+        return;
+    }
+
+    LOG("line: %s", line.c_str());
+    LOG("rounds: %d", rounds);
+
+    if (rounds <= 0) {
+        LOG("ReplayCreator::fixReplay: no rounds to process (%d)", rounds);
+        return;
+    }
+
+    if (rf->rounds.size() < static_cast<size_t>(rounds)) {
+        LOG("ReplayCreator::fixReplay: replay metadata has %zu rounds but raw file lists %d; clamping",
+            rf->rounds.size(), rounds);
+        rounds = static_cast<int>(rf->rounds.size());
+    }
+
     for (int i = 0; i < rounds; ++i) {
+        if (i >= static_cast<int>(rf->rounds.size())) {
+            LOG("ReplayCreator::fixReplay: ran out of replay rounds at index %d", i);
+            break;
+        }
+
         rf->rounds[i].p1Inputs.clear();
         rf->rounds[i].p2Inputs.clear();
-        getline(infile,line);
-        LOG( "line: %s", line);
-        int frames = stoi(line);
-        LOG( "round number: %d", i);
-        LOG( "frames: %d", frames );
-        //cout << "round number  " << i << endl;
-        //cout << "frames " << frames << endl;
+
+        if (!getline(infile, line)) {
+            LOG("ReplayCreator::fixReplay: missing frame count for round %d", i);
+            break;
+        }
+
+        int frames = 0;
+        try {
+            frames = stoi(line);
+        } catch ( const std::exception& ex ) {
+            LOG("ReplayCreator::fixReplay: invalid frame count '%s' (%s) for round %d",
+                line.c_str(), ex.what(), i);
+            break;
+        }
+
+        LOG("line: %s", line.c_str());
+        LOG("round number: %d", i);
+        LOG("frames: %d", frames);
 
         MoveData p1data = {};
         MoveData p2data = {};
@@ -172,16 +219,26 @@ void ReplayCreator::fixReplay(ReplayCreator::ReplayFile* rf, char* fname, MoveDa
 
         vector<string> frameInputs1;
         vector<string> frameInputs2;
+        bool incomplete = false;
         for (int j = 0; j < frames; ++j) {
             string p1Input;
             string p2Input;
-            getline(infile,p1Input,' ');
-            //LOG( "p1Input: %s", p1Input);
-            getline(infile,p2Input);
-            //LOG( "p2Input: %s", p2Input);
+            if (!getline(infile, p1Input, ' ')) {
+                LOG("ReplayCreator::fixReplay: truncated p1 input at frame %d (round %d)", j, i);
+                incomplete = true;
+                break;
+            }
+            if (!getline(infile, p2Input)) {
+                LOG("ReplayCreator::fixReplay: truncated p2 input at frame %d (round %d)", j, i);
+                incomplete = true;
+                break;
+            }
             frameInputs1.push_back( p1Input );
             frameInputs2.push_back( p2Input );
 
+        }
+        if (incomplete) {
+            break;
         }
         //cout << "endframeread" << endl;
         //cout << "p1 " <<  endl;
