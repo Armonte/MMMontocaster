@@ -220,30 +220,51 @@ static void RenderOnceAgainDialog() {
 
 static bool ShouldShowOnceAgainDialog(int* preMatchWords, char forceSkipQuickRetry, int hasMenuChoice) {
     if (!preMatchWords) {
+        LOG("ShouldShowOnceAgainDialog: preMatchWords is null");
         return false;
     }
 
     if (forceSkipQuickRetry != 0 || hasMenuChoice != 0) {
+        LOG("ShouldShowOnceAgainDialog: forceSkip=%d hasMenu=%d - returning false",
+            (int)forceSkipQuickRetry, hasMenuChoice);
         return false;
     }
 
-    if (gStoryModeClearFlag && *gStoryModeClearFlag != 0) {
+    const uint32_t storyClear = gStoryModeClearFlag ? *gStoryModeClearFlag : 0;
+    const uint32_t vsMode = gVsResultMenuMode ? *gVsResultMenuMode : 0;
+
+    if (storyClear != 0) {
+        LOG("ShouldShowOnceAgainDialog: storyClear=%u - returning false", storyClear);
         return false;
     }
 
-    if (gVsResultMenuMode && *gVsResultMenuMode != 0) {
+    // vsMode: 0=normal VS, 1=RETRY (after match), 2=replay mode
+    // We want to show the dialog in normal VS (0) or RETRY mode (1), but not replay mode (2)
+    if (vsMode > 1) {
+        LOG("ShouldShowOnceAgainDialog: vsMode=%u (replay mode) - returning false", vsMode);
         return false;
     }
 
-    if (preMatchWords[21] != 0) {
+    LOG("ShouldShowOnceAgainDialog: vsMode=%u (VS/RETRY mode) - continuing checks", vsMode);
+
+    const int state = preMatchWords[21];
+    const int field17 = preMatchWords[17];
+    const int field20 = preMatchWords[20];
+
+    LOG("ShouldShowOnceAgainDialog: state=%d field17=%d field20=%d", state, field17, field20);
+
+    if (state != 0) {
+        LOG("ShouldShowOnceAgainDialog: state=%d (not 0) - returning false", state);
         return false;
     }
 
-    if (preMatchWords[17] < 30) {
+    if (field17 < 30) {
+        LOG("ShouldShowOnceAgainDialog: field17=%d (< 30) - returning false", field17);
         return false;
     }
 
-    if (preMatchWords[20] <= 300) {
+    if (field20 <= 300) {
+        LOG("ShouldShowOnceAgainDialog: field20=%d (<= 300) - returning false", field20);
         return false;
     }
 
