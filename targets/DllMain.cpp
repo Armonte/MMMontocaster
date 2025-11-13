@@ -1941,8 +1941,8 @@ struct DllMain
                     void* originalFunc = nullptr;
                     MH_STATUS hookStatus = MH_CreateHook(
                         (void*)0x43A4C0,  // BattleScene_ProcessResultState
-                        (void*)&AsmHacks::BattleScene_ProcessResultState_Hook_Wrapper,  // CURRENT: Assembly wrapper
-                        // (void*)&BattleScene_ProcessResultState_Replacement_Wrapper,  // NEW: C++ replacement (ready to switch)
+                        // (void*)&AsmHacks::BattleScene_ProcessResultState_Hook_Wrapper,  // OLD: Assembly wrapper
+                        (void*)&AsmHacks::BattleScene_ProcessResultState_Replacement_Wrapper,  // NEW: C++ replacement
                         &originalFunc     // Save the trampoline pointer
                     );
                     if (hookStatus != MH_OK) {

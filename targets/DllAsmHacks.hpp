@@ -627,6 +627,8 @@ extern "C" void BattleScene_ProcessResultState_Hook_Wrapper();  // Naked wrapper
 // NEW: C++ Replacement Function (ready to switch to - currently disabled)
 // Wrapper converts from __userpurge to __cdecl, then calls the C++ implementation
 extern "C" void BattleScene_ProcessResultState_Replacement_Wrapper();  // Naked wrapper for MinHook at 0x43A4C0
+extern "C" void BattleScene_ProcessResultState_CallOriginal_Wrapper(  // Assembly wrapper to call original with correct __userpurge
+    void* battleContext, void* sceneContext, int sceneState, char forceSkipQuickRetry, int hasMenuChoice, int a6);
 
 // MinHook function pointers (initialized in DllMain.cpp)
 // Original function uses __userpurge: edx=battleContext, ecx=sceneContext, eax=sceneState, stack=rest

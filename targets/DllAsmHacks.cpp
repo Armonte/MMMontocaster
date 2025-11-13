@@ -1167,6 +1167,79 @@ extern "C" __attribute__((naked)) void BattleScene_ProcessResultState_Replacemen
     );
 }
 
+// Assembly wrapper to call the original function with correct __userpurge calling convention
+// Sets esi=battleContext before calling the original
+extern "C" __attribute__((naked)) void BattleScene_ProcessResultState_CallOriginal_Wrapper(
+    void* battleContext,
+    void* sceneContext,
+    int sceneState,
+    char forceSkipQuickRetry,
+    int hasMenuChoice,
+    int a6) {
+    __asm__ __volatile__(
+        ".intel_syntax noprefix;"
+        // Parameters are on stack in __cdecl order:
+        // [esp+0x04] = battleContext
+        // [esp+0x08] = sceneContext
+        // [esp+0x0C] = sceneState
+        // [esp+0x10] = forceSkipQuickRetry
+        // [esp+0x14] = hasMenuChoice
+        // [esp+0x18] = a6
+        
+        // Save registers
+        "push ebp;"
+        "mov ebp, esp;"
+        "push esi;"
+        "push edi;"
+        "push ebx;"
+        
+        // Set up __userpurge calling convention:
+        // ecx = sceneContext
+        // edx = battleContext
+        // eax = sceneState
+        // esi = battleContext (CRITICAL for original function!)
+        // After push ebp; mov ebp, esp; stack layout:
+        // [ebp+0x00] = saved ebp
+        // [ebp+0x04] = return address
+        // [ebp+0x08] = battleContext (first parameter)
+        // [ebp+0x0C] = sceneContext
+        // [ebp+0x10] = sceneState
+        // [ebp+0x14] = forceSkipQuickRetry
+        // [ebp+0x18] = hasMenuChoice
+        // [ebp+0x1C] = a6
+        "mov ecx, [ebp+0x0C];"  // sceneContext
+        "mov edx, [ebp+0x08];"  // battleContext
+        "mov eax, [ebp+0x10];"  // sceneState
+        "mov esi, [ebp+0x08];"  // battleContext (for [esi+54h] access)
+        
+        // Push stack parameters in original order:
+        // forceSkipQuickRetry, a5 (unused?), a6, hasMenuChoice
+        "push dword ptr [ebp+0x18];"  // hasMenuChoice
+        "push dword ptr [ebp+0x1C];"  // a6
+        "push 0;"                      // a5 (unused, but original expects it)
+        "push dword ptr [ebp+0x14];"  // forceSkipQuickRetry (as int)
+        
+        // Load function pointer into ebx (saved/restored) and call it
+        "mov ebx, %P0;"
+        "call ebx;"
+        
+        // Original function uses retn 0Ch (12 bytes), so stack is already cleaned
+        // Restore registers
+        "pop ebx;"
+        "pop edi;"
+        "pop esi;"
+        "mov esp, ebp;"
+        "pop ebp;"
+        
+        // Return (C++ caller will clean up its own stack)
+        "ret;"
+        ".att_syntax;"
+        :
+        : "m"(gBattleScene_ProcessResultState_Original)
+        : "memory", "eax", "ecx", "edx"
+    );
+}
+
 // C++ Replacement Function - Pure C++ implementation, no assembly wrapper needed
 static void BattleScene_ProcessResultState_Replacement_Impl(
     void* battleContext,
@@ -1216,15 +1289,14 @@ static void BattleScene_ProcessResultState_Replacement_Impl(
             if (!gOnceAgainYesNoDialogActive || !gOnceAgainYesNoDialog) {
                 LOG("BattleScene_ProcessResultState_Replacement: case 20 but dialog not active, delegating to original");
                 // Delegate to original (will fall through to default case)
-                if (BattleScene_ProcessResultState_Original) {
-                    BattleScene_ProcessResultState_Original(
-                        battleContext,
-                        sceneContext,
-                        sceneState,
-                        forceSkipQuickRetry,
-                        hasMenuChoice,
-                        a6);
-                }
+                // Use assembly wrapper to set esi correctly
+                BattleScene_ProcessResultState_CallOriginal_Wrapper(
+                    battleContext,
+                    sceneContext,
+                    sceneState,
+                    forceSkipQuickRetry,
+                    hasMenuChoice,
+                    a6);
                 return;
             }
             
@@ -1243,15 +1315,14 @@ static void BattleScene_ProcessResultState_Replacement_Impl(
                     LOG("BattleScene_ProcessResultState_Replacement: exportInputs threw");
                 }
                 // Delegate to original function to handle state 10 (rematch)
-                if (BattleScene_ProcessResultState_Original) {
-                    BattleScene_ProcessResultState_Original(
-                        battleContext,
-                        sceneContext,
-                        sceneState,
-                        forceSkipQuickRetry,
-                        hasMenuChoice,
-                        a6);
-                }
+                // Use assembly wrapper to set esi correctly
+                BattleScene_ProcessResultState_CallOriginal_Wrapper(
+                    battleContext,
+                    sceneContext,
+                    sceneState,
+                    forceSkipQuickRetry,
+                    hasMenuChoice,
+                    a6);
                 return;
             } else if (gOnceAgainYesNoDialogResult == 0) { // NO selected
                 LOG("BattleScene_ProcessResultState_Replacement: dialog NO selected -> returning to results");
@@ -1259,15 +1330,14 @@ static void BattleScene_ProcessResultState_Replacement_Impl(
                 DestroyOnceAgainDialog();
                 bc[21] = 0;
                 // Delegate to original function to handle state 0 (normal flow)
-                if (BattleScene_ProcessResultState_Original) {
-                    BattleScene_ProcessResultState_Original(
-                        battleContext,
-                        sceneContext,
-                        sceneState,
-                        forceSkipQuickRetry,
-                        hasMenuChoice,
-                        a6);
-                }
+                // Use assembly wrapper to set esi correctly
+                BattleScene_ProcessResultState_CallOriginal_Wrapper(
+                    battleContext,
+                    sceneContext,
+                    sceneState,
+                    forceSkipQuickRetry,
+                    hasMenuChoice,
+                    a6);
                 return;
             } else {
                 // Dialog still pending
@@ -1279,26 +1349,24 @@ static void BattleScene_ProcessResultState_Replacement_Impl(
         
         // All other cases: delegate to original function
         // The original function handles all calling conventions correctly for cases 0-18, 255, 1024, 1025, 10001-10002, 40000-40003
-        if (BattleScene_ProcessResultState_Original) {
-            BattleScene_ProcessResultState_Original(
-                battleContext,
-                sceneContext,
-                sceneState,
-                forceSkipQuickRetry,
-                hasMenuChoice,
-                a6);
-        }
+        // Use assembly wrapper to set esi correctly
+        BattleScene_ProcessResultState_CallOriginal_Wrapper(
+            battleContext,
+            sceneContext,
+            sceneState,
+            forceSkipQuickRetry,
+            hasMenuChoice,
+            a6);
     } catch (...) {
         LOG("BattleScene_ProcessResultState_Replacement: Exception caught, delegating to original");
-        if (BattleScene_ProcessResultState_Original) {
-            BattleScene_ProcessResultState_Original(
-                battleContext,
-                sceneContext,
-                sceneState,
-                forceSkipQuickRetry,
-                hasMenuChoice,
-                a6);
-        }
+        // Use assembly wrapper to set esi correctly
+        BattleScene_ProcessResultState_CallOriginal_Wrapper(
+            battleContext,
+            sceneContext,
+            sceneState,
+            forceSkipQuickRetry,
+            hasMenuChoice,
+            a6);
     }
 }
 
