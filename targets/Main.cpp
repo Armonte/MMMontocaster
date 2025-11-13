@@ -470,6 +470,7 @@ int main ( int argc, char *argv[] )
         netplayConfig.mode.flags = ui.initialConfig.mode.flags;
         netplayConfig.delay = 0;
         netplayConfig.winCount = 2;
+        //WINCOUNT CHANGEMELATER
         netplayConfig.tournament = opt[Options::Tournament];
 
         // TODO make this configurable

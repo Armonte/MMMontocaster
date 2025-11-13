@@ -179,6 +179,9 @@ extern uint32_t numLoadedColors;
 void colorLoadCallback ( uint32_t player, uint32_t chara, uint32_t *paletteData );
 void colorLoadCallback ( uint32_t player, uint32_t chara, uint32_t palette, uint32_t *singlePaletteData );
 
+// Setter for MinHook trampoline pointer (called from DllMain.cpp after MinHook installation)
+void SetBattleSceneProcessResultStateOriginal(void* originalFunc);
+
 
 // Struct for storing assembly code
 struct Asm
@@ -617,10 +620,11 @@ static const AsmList loadCustomPalettesAsm = {
 extern "C" void VsResultMenu_Init_CallHook();
 extern "C" void __attribute__((stdcall)) VsResultMenu_FinalizeSelection_Hook(void* tag);
 extern "C" void BattleScene_ApplyResultSelection_Hook(uint32_t inputState);
-extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook(int skipQuickRetry);
-extern "C" void BattleScene_ProcessResultState_Hook();  // Naked wrapper extracts register params
+extern "C" void* BattleScene_PostMatchTransition_VsResultMenuCreate_Hook_Impl(int skipQuickRetry);
+extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook(int skipQuickRetry);  // Byte patch at 0x4396C5
+extern "C" void BattleScene_ProcessResultState_Hook_Wrapper();  // Naked wrapper for __userpurge - MinHook at 0x43A4C0
 
-// MinHook function pointer for BattleScene_ProcessResultState (initialized in DllMain.cpp)
+// MinHook function pointers (initialized in DllMain.cpp)
 // Original function uses __userpurge: edx=battleContext, ecx=sceneContext, eax=sceneState, stack=rest
 typedef void (__cdecl* BattleScene_ProcessResultState_t)(
     void* battleContext, void* sceneContext, int sceneState,

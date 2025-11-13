@@ -118,7 +118,6 @@ LD_FLAGS = -m32 -static -lws2_32 -lpsapi -lwinpthread -lwinmm -lole32 -ldinput -
 
 # Install after make, set to 0 to disable install after make
 INSTALL = 1
-INSTALL_DIR ?= /mnt/c/games/caster
 
 # Build type flags
 DEBUG_FLAGS = -ggdb3 -O0 -fno-inline -D_GLIBCXX_DEBUG -DDEBUG -DLOGGING
@@ -458,12 +457,6 @@ post-build: main-build
 	@echo ========== Post-build ==========
 	@echo
 	if [ $(INSTALL) = 1 ] && [ -s ./scripts/install ]; then ./scripts/install; fi;
-ifeq ($(BUILD_TYPE),build_debug)
-	if [ -d $(INSTALL_DIR) ]; then \
-		cp -f $(FOLDER)/$(DLL) $(INSTALL_DIR)/; \
-		if [ -n "$(DLL_DBG)" ] && [ -f $(FOLDER)/$(DLL_DBG) ]; then cp -f $(FOLDER)/$(DLL_DBG) $(INSTALL_DIR)/; fi; \
-	fi
-endif
 
 
 debug: post-build

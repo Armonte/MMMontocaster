@@ -21,8 +21,8 @@
 #include "PluginHost/PluginHost.hpp"
 #include "PluginHost/DetourManager.hpp"
 
-#include <MinHook.h>
 #include <windows.h>
+#include <MinHook.h>
 
 #include <vector>
 #include <memory>
@@ -1895,7 +1895,7 @@ struct DllMain
                 *CC_DAMAGE_LEVEL_ADDR = 2;
                 *CC_TIMER_SPEED_ADDR = 2;
                 *CC_WIN_COUNT_VS_ADDR = ( uint32_t ) ( netMan.config.winCount ? netMan.config.winCount : 2 );
-
+                //CHANGEMELATER
                 // *CC_WIN_COUNT_VS_ADDR = 1;
                 // *CC_DAMAGE_LEVEL_ADDR = 4;
 
@@ -1923,21 +1923,29 @@ struct DllMain
                 // TEMPORARILY DISABLED: hookResultMenuSetupWinQuote not implemented
                 // for ( const AsmHacks::Asm& hack : AsmHacks::hookResultMenuSetupWinQuote )
                 //     WRITE_ASM_HACK ( hack );
-                // Install BattleScene_ProcessResultState hook via MinHook (replaces manual trampoline)
+                // TEMPORARILY DISABLED: BattleScene_ProcessResultState hook for case 20 YES/NO dialog handling
+                // This hook causes crashes and needs to be rewritten using MinHook properly
+                // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneProcessResultState )
+                //     WRITE_ASM_HACK ( hack );
+                // Install BattleScene_ProcessResultState hook via MinHook (case dispatcher)
                 {
+                    void* originalFunc = nullptr;
                     MH_STATUS hookStatus = MH_CreateHook(
                         (void*)0x43A4C0,  // BattleScene_ProcessResultState
-                        (void*)&AsmHacks::BattleScene_ProcessResultState_Hook,
-                        (void**)&AsmHacks::BattleScene_ProcessResultState_Original
+                        (void*)&AsmHacks::BattleScene_ProcessResultState_Hook_Wrapper,
+                        &originalFunc     // Save the trampoline pointer
                     );
                     if (hookStatus != MH_OK) {
-                        LOG("BattleScene_ProcessResultState hook creation FAILED: %s", MH_StatusString(hookStatus));
+                        LOG("Failed to create MinHook for BattleScene_ProcessResultState: %d", (int)hookStatus);
                     } else {
+                        // Set the trampoline pointer in AsmHacks
+                        AsmHacks::SetBattleSceneProcessResultStateOriginal(originalFunc);
+
                         hookStatus = MH_EnableHook((void*)0x43A4C0);
                         if (hookStatus != MH_OK) {
-                            LOG("BattleScene_ProcessResultState hook enable FAILED: %s", MH_StatusString(hookStatus));
+                            LOG("Failed to enable MinHook for BattleScene_ProcessResultState: %d", (int)hookStatus);
                         } else {
-                            LOG("BattleScene_ProcessResultState hook ENABLED via MinHook at 0x43A4C0");
+                            LOG("BattleScene_ProcessResultState hook ENABLED via MinHook at 0x43A4C0, trampoline=%p", originalFunc);
                         }
                     }
                 }
