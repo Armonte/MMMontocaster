@@ -75,6 +75,9 @@ static bool gSkipOriginalProcessResultState = false; // Flag to skip original fu
 // This will be set by DllMain.cpp when the MinHook is installed
 static void* gBattleScene_ProcessResultState_Original = nullptr;
 
+// Global flag to signal whether to skip the original VsResultMenu_FinalizeSelection function
+static bool gSkipVsResultMenuFinalizeSelection = false;
+
 // Function pointer types for YES/NO dialog functions
 typedef int (__stdcall* CTM_YesNo_Init_t)(void* menuManager);
 static CTM_YesNo_Init_t CTM_YesNo_Init = (CTM_YesNo_Init_t)0x47D070;
@@ -1127,13 +1130,34 @@ static void VsResultMenu_FinalizeSelection_Hook_Impl_Internal(void* manager) {
         hoveredTag ? hoveredTag->length : -1,
         hoveredTag ? hoveredTag->maxLength : -1);
 
-    if (isOnceAgain && netManPtr) {
-        try {
-            netManPtr->exportInputs();
-            LOG("VsResultMenu_FinalizeSelection_Hook: exportInputs succeeded");
-        } catch (...) {
-            LOG("VsResultMenu_FinalizeSelection_Hook: exportInputs threw");
+    if (isOnceAgain) {
+        LOG("VsResultMenu_FinalizeSelection_Hook: ONCE_AGAIN detected! Checking gVsResultMenuHandle=%p",
+            gVsResultMenuHandle ? *gVsResultMenuHandle : nullptr);
+
+        // When ONCE_AGAIN is selected, the game will set gVsResultMenuInputState=0 and try to close the menu
+        // The crash happens because it tries to call a virtual function on the menu handle
+        // We should NOT let the original code run for ONCE_AGAIN - we need to handle it differently
+
+        if (netManPtr) {
+            try {
+                netManPtr->exportInputs();
+                LOG("VsResultMenu_FinalizeSelection_Hook: exportInputs succeeded");
+            } catch (...) {
+                LOG("VsResultMenu_FinalizeSelection_Hook: exportInputs threw");
+            }
         }
+
+        // CRITICAL: Don't let the game's ONCE_AGAIN handler run - it will crash
+        // Instead, set the input state to trigger rematch (state 0 = ONCE_AGAIN in game logic)
+        if (gVsResultMenuInputState) {
+            LOG("VsResultMenu_FinalizeSelection_Hook: Setting gVsResultMenuInputState=0 for rematch");
+            *gVsResultMenuInputState = 0;
+        }
+
+        // Set flag to skip original function execution
+        gSkipVsResultMenuFinalizeSelection = true;
+        LOG("VsResultMenu_FinalizeSelection_Hook: Skipping original function for ONCE_AGAIN");
+        return;
     } else {
         LOG("VsResultMenu_FinalizeSelection_Hook: not ONCE AGAIN (isOnceAgain=%d)", isOnceAgain ? 1 : 0);
     }
@@ -1157,10 +1181,26 @@ extern "C" void __attribute__((naked)) VsResultMenu_FinalizeSelection_CallHook()
         "call %0\n"
         "add esp, 4\n"
         "popad\n"
+
+        // Check if we should skip original code
+        "cmp byte ptr [%1], 0\n"
+        "jne skip_original_finalize\n"
+
+        // Run original code
         "jmp 0x00482E88\n"
+
+        "skip_original_finalize:\n"
+        // Reset flag
+        "mov byte ptr [%1], 0\n"
+        // Pop edi and esi that we pushed at start
+        "pop edi\n"
+        "pop esi\n"
+        // Return directly to caller (skipping original function)
+        "ret\n"
         ".att_syntax prefix\n"
         :
-        : "r"(AsmHacks::VsResultMenu_FinalizeSelection_Hook_Impl_Internal)
+        : "r"(AsmHacks::VsResultMenu_FinalizeSelection_Hook_Impl_Internal),
+          "m"(gSkipVsResultMenuFinalizeSelection)
         : "eax"
     );
 }
