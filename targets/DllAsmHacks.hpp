@@ -618,12 +618,20 @@ extern "C" void VsResultMenu_Init_CallHook();
 extern "C" void __attribute__((stdcall)) VsResultMenu_FinalizeSelection_Hook(void* tag);
 extern "C" void BattleScene_ApplyResultSelection_Hook(uint32_t inputState);
 extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook(int skipQuickRetry);
-extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleContext, int sceneState, char forceSkipQuickRetry, int hasMenuChoice, int a6);
+extern "C" void BattleScene_ProcessResultState_Hook();  // Naked wrapper extracts register params
+
+// MinHook function pointer for BattleScene_ProcessResultState (initialized in DllMain.cpp)
+// Original function uses __userpurge: edx=battleContext, ecx=sceneContext, eax=sceneState, stack=rest
+typedef void (__cdecl* BattleScene_ProcessResultState_t)(
+    void* battleContext, void* sceneContext, int sceneState,
+    char forceSkipQuickRetry, int hasMenuChoice, int a6
+);
+extern BattleScene_ProcessResultState_t BattleScene_ProcessResultState_Original;
 
 extern const AsmList hookVsResultMenuInit;
 extern const AsmList hookVsResultMenuFinalizeSelection;
 extern const AsmList hookBattleSceneApplyResultSelection;
 extern const AsmList hookBattleScenePostMatchTransition;
-extern const AsmList hookBattleSceneProcessResultState;
+// NOTE: hookBattleSceneProcessResultState now installed via MinHook (no byte patches)
 
 } // namespace AsmHacks

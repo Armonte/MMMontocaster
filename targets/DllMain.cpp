@@ -21,6 +21,7 @@
 #include "PluginHost/PluginHost.hpp"
 #include "PluginHost/DetourManager.hpp"
 
+#include <MinHook.h>
 #include <windows.h>
 
 #include <vector>
@@ -1922,11 +1923,24 @@ struct DllMain
                 // TEMPORARILY DISABLED: hookResultMenuSetupWinQuote not implemented
                 // for ( const AsmHacks::Asm& hack : AsmHacks::hookResultMenuSetupWinQuote )
                 //     WRITE_ASM_HACK ( hack );
-                // TEMPORARILY DISABLED: BattleScene_ProcessResultState hook for case 20 YES/NO dialog handling
-                // This hook causes crashes and needs to be rewritten using MinHook properly
-                // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneProcessResultState )
-                //     WRITE_ASM_HACK ( hack );
-                LOG("BattleScene_ProcessResultState hook DISABLED pending MinHook rewrite");
+                // Install BattleScene_ProcessResultState hook via MinHook (replaces manual trampoline)
+                {
+                    MH_STATUS hookStatus = MH_CreateHook(
+                        (void*)0x43A4C0,  // BattleScene_ProcessResultState
+                        (void*)&AsmHacks::BattleScene_ProcessResultState_Hook,
+                        (void**)&AsmHacks::BattleScene_ProcessResultState_Original
+                    );
+                    if (hookStatus != MH_OK) {
+                        LOG("BattleScene_ProcessResultState hook creation FAILED: %s", MH_StatusString(hookStatus));
+                    } else {
+                        hookStatus = MH_EnableHook((void*)0x43A4C0);
+                        if (hookStatus != MH_OK) {
+                            LOG("BattleScene_ProcessResultState hook enable FAILED: %s", MH_StatusString(hookStatus));
+                        } else {
+                            LOG("BattleScene_ProcessResultState hook ENABLED via MinHook at 0x43A4C0");
+                        }
+                    }
+                }
 
                 if ( netMan.autoReplaySave )
                 {

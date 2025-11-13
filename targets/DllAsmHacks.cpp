@@ -769,6 +769,40 @@ void _naked_paletteCallback() {
 
 // VS Result Menu hooks for Once Again plugin
 
+// MinHook function pointer for BattleScene_ProcessResultState
+// Original function uses __userpurge: edx=battleContext, ecx=sceneContext, eax=sceneState, stack=rest
+typedef void (__cdecl* BattleScene_ProcessResultState_t)(
+    void* battleContext, void* sceneContext, int sceneState,
+    char forceSkipQuickRetry, int hasMenuChoice, int a6
+);
+BattleScene_ProcessResultState_t BattleScene_ProcessResultState_Original = nullptr;
+
+// Wrapper to call original function with correct register-based calling convention
+static __attribute__((noinline)) void CallOriginalBattleSceneProcessResultState(
+    void* battleContext, void* sceneContext, int sceneState,
+    char forceSkipQuickRetry, int hasMenuChoice, int a6)
+{
+    if (!BattleScene_ProcessResultState_Original) return;
+
+    // Use AT&T syntax assembly
+    __asm__ __volatile__(
+        "pushl %[a6_val]\n\t"      // Push stack params first
+        "pushl %[hmc]\n\t"
+        "movzbl %[fsr], %%eax\n\t"
+        "pushl %%eax\n\t"
+        "movl %[bc], %%edx\n\t"    // Set up register params
+        "movl %[sc], %%ecx\n\t"
+        "movl %[ss], %%eax\n\t"
+        "call *%[orig]\n\t"        // Call original
+        "addl $12, %%esp\n\t"      // Clean stack
+        :
+        : [bc] "g" (battleContext), [sc] "g" (sceneContext), [ss] "g" (sceneState),
+          [fsr] "g" (forceSkipQuickRetry), [hmc] "g" (hasMenuChoice), [a6_val] "g" (a6),
+          [orig] "g" (BattleScene_ProcessResultState_Original)
+        : "eax", "ecx", "edx", "memory", "cc"
+    );
+}
+
 // Hook 1: VsResultMenu_Init - Force skipQuickRetryGate = 0 for offline versus
 static void VsResultMenu_Init_Hook_Impl_Internal(void* prevMenu, void* managerPtr, void* contextPtr) {
     (void)prevMenu;
@@ -842,82 +876,29 @@ extern "C" int ResultMenu_SetupWinQuote_Hook_Impl(int result, int* preMatchWords
     return original(result, preMatchWords, sceneState, hasMenuChoice);
 }
 
-extern "C" __attribute__((naked)) void BattleScene_ProcessResultState_Trampoline(
-    void* /*ctx*/, void* /*battleContext*/, int /*sceneState*/,
-    char /*forceSkipQuickRetry*/, int /*hasMenuChoice*/, int /*a6*/, void* /*originalReturnAddress*/) {
-    __asm__ __volatile__(
-        ".intel_syntax noprefix;"
-        // Load register arguments before we disturb the stack
-        "mov ecx, [esp+4];"      // ctx
-        "mov edx, [esp+8];"      // battleContext
-        "mov eax, [esp+12];"     // sceneState
-
-        // Save original callee-saved registers (mirrors original function prologue)
-        "push ebx;"
-        "push esi;"
-        "push edi;"
-
-        // Load additional parameters from their shifted locations
-        "mov ebp, [esp+0x1C];"   // forceSkipQuickRetry (after pushes)
-        "mov ebx, [esp+0x20];"   // hasMenuChoice
-        "mov edi, [esp+0x28];"   // originalReturnAddress
-        "mov esi, [esp+0x24];"   // a6 / transitionArg
-
-        // Reconstruct expected stack layout
-        "mov [esp+0x0C], edi;"   // return address
-        "mov [esp+0x10], ebp;"   // forceSkipQuickRetry
-        "mov dword ptr [esp+0x14], 0;" // a5 (unused)
-        "mov [esp+0x18], esi;"   // a6 / transitionArg
-        "mov dword ptr [esp+0x1C], 0;" // gap filler
-        "mov [esp+0x20], ebx;"   // hasMenuChoice
-
-        // Prepare registers as original prologue would have
-        "mov esi, edx;"          // battleContext
-        "mov edi, ecx;"          // ctx
-
-        // Jump to original function past the patched call
-        "jmp 0x43A4C7;"
-        ".att_syntax;"
-    );
-}
-
-extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleContext, int sceneState, char forceSkipQuickRetry, int hasMenuChoice, int a6) {
-    // Extract the original return address from the stack
-    void* originalReturnAddress = __builtin_return_address(0);
-
-    static int stackLogCounter = 0;
-    if (stackLogCounter < 10) {
-        uintptr_t espSnapshot = 0;
-        __asm__ __volatile__("movl %%esp, %0" : "=r"(espSnapshot));
-        auto* stackWords = reinterpret_cast<uintptr_t*>(espSnapshot);
-        LOG("BattleScene_ProcessResultState_Hook: esp=%p ret=%p arg_ctx=%p arg_battleContext=%p arg_scene=%p raw_stack0=[%p,%p,%p]",
-            reinterpret_cast<void*>(espSnapshot),
-            reinterpret_cast<void*>(stackWords[0]),
-            ctx,
-            battleContext,
-            reinterpret_cast<void*>(sceneState),
-            reinterpret_cast<void*>(stackWords[1]),
-            reinterpret_cast<void*>(stackWords[2]),
-            reinterpret_cast<void*>(stackWords[3]));
-        LOG("BattleScene_ProcessResultState_Hook: params forceSkip=%d hasMenu=%d a6=%d originalRet=%p",
-            static_cast<int>(forceSkipQuickRetry),
-            hasMenuChoice,
-            a6,
-            originalReturnAddress);
-        ++stackLogCounter;
+// Internal C++ implementation (called by naked wrapper below)
+extern "C" void BattleScene_ProcessResultState_Hook_Impl(void* battleContext, void* sceneContext, int sceneState, char forceSkipQuickRetry, int hasMenuChoice, int a6) {
+    // Parameters correctly extracted from registers by naked wrapper
+    static int logCounter = 0;
+    if (logCounter < 5) {
+        LOG("BattleScene_ProcessResultState_Hook: battleContext=%p sceneContext=%p sceneState=%d forceSkip=%d hasMenu=%d a6=%d",
+            battleContext, sceneContext, sceneState, static_cast<int>(forceSkipQuickRetry), hasMenuChoice, a6);
+        ++logCounter;
     }
 
     try {
         if (!battleContext) {
-            LOG("BattleScene_ProcessResultState_Hook: battleContext=null sceneState=%d", sceneState);
-            BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, originalReturnAddress);
+            LOG("BattleScene_ProcessResultState_Hook: battleContext=null, calling original");
+            CallOriginalBattleSceneProcessResultState(battleContext, sceneContext, sceneState,
+                                                      forceSkipQuickRetry, hasMenuChoice, a6);
             return;
         }
 
         int* bc = (int*)battleContext;
         if (!bc) {
-            LOG("BattleScene_ProcessResultState_Hook: battleContext cast failed sceneState=%d", sceneState);
-            BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, originalReturnAddress);
+            LOG("BattleScene_ProcessResultState_Hook: battleContext cast failed, calling original");
+            CallOriginalBattleSceneProcessResultState(battleContext, sceneContext, sceneState,
+                                                      forceSkipQuickRetry, hasMenuChoice, a6);
             return;
         }
 
@@ -967,7 +948,9 @@ extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleConte
                     } catch (...) {
                         LOG("BattleScene_ProcessResultState_Hook: exportInputs threw");
                     }
-                    BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, originalReturnAddress);
+                    // Call original with register setup
+                    CallOriginalBattleSceneProcessResultState(battleContext, sceneContext, sceneState,
+                                                              forceSkipQuickRetry, hasMenuChoice, a6);
                     return;
                 }
 
@@ -976,7 +959,9 @@ extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleConte
                     VsResultMenu_Create_Original(0);
                     DestroyOnceAgainDialog();
                     bc[21] = 0;
-                    BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, originalReturnAddress);
+                    // Call original with register setup
+                    CallOriginalBattleSceneProcessResultState(battleContext, sceneContext, sceneState,
+                                                              forceSkipQuickRetry, hasMenuChoice, a6);
                     return;
                 }
 
@@ -989,7 +974,32 @@ extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleConte
         LOG("BattleScene_ProcessResultState_Hook: Exception caught, calling original");
     }
 
-    BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, originalReturnAddress);
+    // Call original function for all other cases via our trampoline wrapper
+    // (Original function needs registers set up, not just stack params)
+    CallOriginalBattleSceneProcessResultState(battleContext, sceneContext, sceneState,
+                                              forceSkipQuickRetry, hasMenuChoice, a6);
+}
+
+// Naked wrapper to extract register parameters (edx, ecx, eax) and stack params
+// Original function uses custom __userpurge convention:
+//   edx = battleContext, ecx = sceneContext, eax = sceneState
+//   Stack layout (BEFORE our function): [esp+4]=forceSkipQuickRetry, [esp+8]=a5, [esp+12]=a6, [esp+20]=hasMenuChoice, [esp+24]=transitionArg
+//   NOTE: Gap at [esp+16]!
+extern "C" __attribute__((naked)) void BattleScene_ProcessResultState_Hook() {
+    __asm__ (
+        "push %ebx\n\t"
+        "push 16(%esp)\n\t"          // a6 - was [esp+12]
+        "push 24(%esp)\n\t"          // hasMenuChoice - was [esp+20]
+        "movzbl 8(%esp), %ebx\n\t"   // forceSkipQuickRetry - was [esp+4]
+        "push %ebx\n\t"
+        "push %eax\n\t"              // sceneState from register
+        "push %ecx\n\t"              // sceneContext from register
+        "push %edx\n\t"              // battleContext from register
+        "call _BattleScene_ProcessResultState_Hook_Impl\n\t"
+        "add $24, %esp\n\t"
+        "pop %ebx\n\t"
+        "ret"
+    );
 }
 
 // Hook 2: VsResultMenu_FinalizeSelection - Intercept ONCE_AGAIN selection
@@ -1132,14 +1142,8 @@ const AsmList hookBattleScenePostMatchTransition = {
     } }
 };
 
-// NOTE: This will be patched at runtime in DllMain after the DLL loads
-// because we can't compute the correct address at compile time
-const AsmList hookBattleSceneProcessResultState = {
-    { (void*)0x43A4C0, {
-        // Placeholder: will be replaced with "push <hook_addr>; ret" at runtime
-        0x90, 0x90, 0x90, 0x90, 0x90, 0x90  // 6 NOPs
-    } }
-};
+// NOTE: hookBattleSceneProcessResultState is now installed via MinHook in DllMain.cpp
+// No byte patches needed - MinHook handles the detour automatically
 
 } // namespace AsmHacks
 
