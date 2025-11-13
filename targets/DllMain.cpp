@@ -1915,6 +1915,11 @@ struct DllMain
                     WRITE_ASM_HACK ( hack );
                 for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuFinalizeSelection )
                     WRITE_ASM_HACK ( hack );
+                // Hook BattleScene_PostMatchTransition at VsResultMenu_Create call site (0x4396C5)
+                // This intercepts VS Results Menu creation and injects YES/NO dialog BEFORE the menu appears
+                // TEMPORARILY DISABLED: Testing if this hook is causing the crash
+                // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleScenePostMatchTransition )
+                //     WRITE_ASM_HACK ( hack );
                 // TEMPORARILY DISABLED: BattleScene_ApplyResultSelection hook conflicts with BattleScene_PostMatchTransition
                 // They're the same function at 0x439420, and the hook signature was wrong
                 // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneApplyResultSelection )
@@ -1928,6 +1933,7 @@ struct DllMain
                 // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneProcessResultState )
                 //     WRITE_ASM_HACK ( hack );
                 // Install BattleScene_ProcessResultState hook via MinHook (case dispatcher)
+                // TEMPORARILY DISABLED: Testing if this hook is causing the crash
                 // 
                 // TO SWITCH TO NEW C++ REPLACEMENT FUNCTION:
                 // Change the second parameter from:
@@ -1937,6 +1943,7 @@ struct DllMain
                 // 
                 // The replacement function eliminates register restoration complexity by
                 // handling case 20 in pure C++ and delegating all other cases to the original.
+                /*
                 {
                     void* originalFunc = nullptr;
                     MH_STATUS hookStatus = MH_CreateHook(
@@ -1959,6 +1966,7 @@ struct DllMain
                         }
                     }
                 }
+                */
 
                 if ( netMan.autoReplaySave )
                 {

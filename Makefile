@@ -51,7 +51,9 @@ PLUGIN_OBJECTS_ONCE_AGAIN = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_ONCE_
 PLUGIN_DLL_REPLAY = plugins/replay-takeover/replay_takeover.dll
 PLUGIN_DLL_HUD = plugins/hud-theme/hud_theme.dll
 PLUGIN_DLL_ONCE_AGAIN = plugins/once-again/once_again.dll
-PLUGIN_DLLS = $(PLUGIN_DLL_REPLAY) $(PLUGIN_DLL_HUD) $(PLUGIN_DLL_ONCE_AGAIN)
+# TEMPORARILY DISABLED: once-again plugin conflicts with DLL hooks
+# PLUGIN_DLLS = $(PLUGIN_DLL_REPLAY) $(PLUGIN_DLL_HUD) $(PLUGIN_DLL_ONCE_AGAIN)
+PLUGIN_DLLS = $(PLUGIN_DLL_REPLAY) $(PLUGIN_DLL_HUD)
 
 NON_GEN_SRCS = \
 	$(wildcard netplay/*.cpp tools/*.cpp targets/*.cpp targets/PluginHost/*.cpp targets/PluginHost/Services/*.cpp lib/*.cpp tests/*.cpp sequences/*.cpp)

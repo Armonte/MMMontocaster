@@ -620,8 +620,9 @@ static const AsmList loadCustomPalettesAsm = {
 extern "C" void VsResultMenu_Init_CallHook();
 extern "C" void __attribute__((stdcall)) VsResultMenu_FinalizeSelection_Hook(void* tag);
 extern "C" void BattleScene_ApplyResultSelection_Hook(uint32_t inputState);
-extern "C" void* BattleScene_PostMatchTransition_VsResultMenuCreate_Hook_Impl(int skipQuickRetry);
-extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook(int skipQuickRetry);  // Byte patch at 0x4396C5
+extern "C" int BattleScene_PostMatchTransition_VsResultMenuCreate_Hook_Wrapper();  // Assembly wrapper - extracts battleContext from caller's frame
+extern "C" int BattleScene_PostMatchTransition_VsResultMenuCreate_Hook_Impl(void* battleContext, int skipQuickRetry);  // C++ implementation
+extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook(int skipQuickRetry);  // Old signature (kept for compatibility)
 extern "C" void BattleScene_ProcessResultState_Hook_Wrapper();  // Naked wrapper for __userpurge - MinHook at 0x43A4C0
 
 // NEW: C++ Replacement Function (ready to switch to - currently disabled)

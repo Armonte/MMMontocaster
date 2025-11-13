@@ -1501,28 +1501,161 @@ extern "C" void BattleScene_ApplyResultSelection_Hook(uint32_t inputState) {
 }
 
 // Hook 4: BattleScene_PostMatchTransition - Inject YES/NO dialog BEFORE VsResultMenu_Create
-extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook(int skipQuickRetry) {
+// Assembly wrapper to extract battleContext (ebp) from caller's frame
+extern "C" __attribute__((naked)) int BattleScene_PostMatchTransition_VsResultMenuCreate_Hook_Wrapper() {
+    __asm__ __volatile__(
+        ".intel_syntax noprefix;"
+        // REGISTER STATE AT ENTRY:
+        //   ebp = battleContext (set at 0x439430)
+        //   edx = vtable pointer from [gVsResultMenuHandle] (set at 0x4396AF) - MAY BE GARBAGE if handle was NULL!
+        //   eax = unknown (may be modified)
+        // STACK STATE AT ENTRY:
+        //   [esp+0x00] = return address (to 0x4396CA)
+        //   [esp+0x04] = skipQuickRetry parameter
+        //
+        // CRITICAL: edx may be GARBAGE when gVsResultMenuHandle is NULL (RETRY mode)
+        // CRITICAL: After VsResultMenu_Create, we MUST reload edx from the new menu handle!
+        // CRITICAL: ebp MUST be preserved - used throughout function to access battleContext
+        
+        // Save registers BEFORE modifying them (order: ebx, edi, ebp, eax)
+        // CRITICAL: EBP must be preserved - it contains battleContext!
+        // CRITICAL: EBX and EDI must be preserved - they are callee-saved registers!
+        //           The code at 0x4396D2 uses BL to set gNewSceneFlag!
+        // NOTE: We do NOT save edx because it may be garbage! We'll reload it after the call.
+        // NOTE: We do NOT save esi - it may not be initialized (conditional at 0x43969C can skip its init)
+        "push ebx;"           // Save ebx - callee-saved register
+        "push edi;"           // Save edi - callee-saved register  
+        "push ebp;"           // Save ebp (battleContext)
+        "push eax;"           // Save eax temporarily
+        
+        // STACK LAYOUT AFTER 4 PUSHES:
+        //   [esp+0x00] = saved eax
+        //   [esp+0x04] = saved ebp (battleContext)
+        //   [esp+0x08] = saved edi
+        //   [esp+0x0C] = saved ebx
+        //   [esp+0x10] = return address
+        //   [esp+0x14] = skipQuickRetry
+        
+        // Extract parameters from stack (use ecx as temporary - it's in clobber list)
+        "mov ecx, [esp+0x14];"  // skipQuickRetry (from original stack)
+        "mov eax, [esp+0x04];"  // battleContext (from saved ebp) - use eax temporarily
+        
+        // Push parameters for C++ function: (battleContext, skipQuickRetry)
+        "push ecx;"  // skipQuickRetry
+        "push eax;"  // battleContext
+        
+        // Call C++ handler
+        "call %P0;"
+        
+        // Clean up stack: 2 parameters * 4 bytes = 8 bytes
+        "add esp, 8;"
+        
+        // STACK LAYOUT AFTER CLEANUP:
+        //   [esp+0x00] = saved eax
+        //   [esp+0x04] = saved ebp (battleContext)
+        //   [esp+0x08] = saved edi
+        //   [esp+0x0C] = saved ebx
+        //   [esp+0x10] = return address
+        //   [esp+0x14] = skipQuickRetry
+        
+        // Save return value (eax) temporarily
+        "mov ecx, eax;"       // Save return value in ecx
+        
+        // CRITICAL FIX: Set EDX to the vtable pointer of the created/existing menu
+        // The game expects EDX to point to the vtable (0x538cc8) after this call
+        // In normal flow: EDX was set from old menu's vtable at 0x4396AF, which is still valid
+        // We must ensure EDX = vtable pointer before returning
+        "mov edx, 0x538cc8;"  // Hardcode vtable pointer (same for all VsResultMenu instances)
+        
+        // Restore registers (in reverse order: eax, ebp, edi, ebx)
+        "pop eax;"            // Restore old eax (we'll overwrite it with return value)
+        "pop ebp;"            // Restore ebp (CRITICAL: battleContext must be preserved!)
+        "pop edi;"            // Restore edi (CRITICAL: callee-saved register!)
+        "pop ebx;"            // Restore ebx (CRITICAL: callee-saved, used at 0x4396D2!)
+        
+        // Restore return value to eax
+        "mov eax, ecx;"       // Return value back in eax
+        
+        // Return WITHOUT cleaning up the parameter!
+        // CRITICAL: VsResultMenu_Create_Original is __stdcall, so it already cleaned
+        // up its parameter with "ret 4" internally. We must NOT do "ret 4" again
+        // or we'll corrupt the stack by popping an extra 4 bytes!
+        "ret;"
+        ".att_syntax;"
+        :
+        : "i"(BattleScene_PostMatchTransition_VsResultMenuCreate_Hook_Impl)
+        : "memory", "ecx", "edx"
+    );
+}
+
+// C++ implementation  
+extern "C" int __attribute__((cdecl)) BattleScene_PostMatchTransition_VsResultMenuCreate_Hook_Impl(void* battleContext, int skipQuickRetry) {
+    // CRITICAL: This function MUST use cdecl calling convention to avoid corrupting ESI/EDI/EBX
+    // which are callee-saved registers that must be preserved!
+    
+    // TEMPORARY DEBUG: Always just call original to isolate if wrapper is the problem
+    LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: PASSTHROUGH MODE - calling original");
+    return VsResultMenu_Create_Original(skipQuickRetry);
+    
     try {
+        if (!battleContext) {
+            LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: battleContext is null!");
+            return VsResultMenu_Create_Original(skipQuickRetry);
+        }
+        
         if (!gVsResultMenuMode || !gStoryModeClearFlag) {
             return VsResultMenu_Create_Original(skipQuickRetry);
         }
 
-        LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: skipQuickRetry=%d, mode=%d, storyFlag=%d", skipQuickRetry, *gVsResultMenuMode, *gStoryModeClearFlag);
+        LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: skipQuickRetry=%d, mode=%d, storyFlag=%d, battleContext=%p",
+            skipQuickRetry, *gVsResultMenuMode, *gStoryModeClearFlag, battleContext);
 
         if (gOnceAgainYesNoDialogActive) {
             LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Dialog active, skipping VsResultMenu_Create");
             return 0; // Skip creating vanilla results menu
         }
 
-        if (*gVsResultMenuMode == 0 && *gStoryModeClearFlag == 0 && skipQuickRetry == 0) {
-            LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Conditions met for Once Again dialog");
+        // Check if we should show the dialog
+        int* bc = reinterpret_cast<int*>(battleContext);
+        int state = bc[21]; // preMatchWords[21]
+        
+        LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: state=%d", state);
+        
+        // Check conditions for showing dialog
+        if (*gVsResultMenuMode == 0 && *gStoryModeClearFlag == 0 && skipQuickRetry == 0 && state == 0) {
+            LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Conditions met, creating Once Again dialog");
+            
+            // Create the dialog
+            if (CreateOnceAgainDialog(battleContext)) {
+                // Set state to 20 (dialog state)
+                bc[21] = 20;
+                LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Dialog created, state set to 20, skipping VsResultMenu_Create");
+                return 0; // Skip creating vanilla results menu
+            } else {
+                LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Dialog creation failed");
+            }
+        } else {
+            LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Conditions not met - mode=%d storyFlag=%d skipQuickRetry=%d state=%d",
+                *gVsResultMenuMode, *gStoryModeClearFlag, skipQuickRetry, state);
         }
     } catch (...) {
         LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: Exception, calling original");
     }
 
     LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: No dialog, calling original (skipQuickRetry=%d)", skipQuickRetry);
-    return VsResultMenu_Create_Original(skipQuickRetry);
+    int result = VsResultMenu_Create_Original(skipQuickRetry);
+    
+    LOG("BattleScene_PostMatchTransition_VsResultMenuCreate_Hook: VsResultMenu_Create returned %d, gVsResultMenuHandle=%p",
+        result, gVsResultMenuHandle ? *gVsResultMenuHandle : nullptr);
+    
+    // CRITICAL FIX: After VsResultMenu_Create, the wrapper MUST reload edx from gVsResultMenuHandle
+    // because when gVsResultMenuHandle was NULL before the call (e.g., in RETRY mode),
+    // edx was never set at 0x4396AF (the jz at 0x4396AD skipped it).
+    // The wrapper saves/restores edx, but if it was garbage before, it will be garbage after.
+    // The game expects to use edx at 0x4396CD to access the vtable.
+    // Signal to wrapper: don't restore edx, let it be reloaded from gVsResultMenuHandle.
+    
+    return result;
 }
 
 const AsmList hookVsResultMenuInit = {
@@ -1547,8 +1680,10 @@ const AsmList hookBattleSceneApplyResultSelection = {
 
 const AsmList hookBattleScenePostMatchTransition = {
     { (void*)0x4396C5, {
-        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x4396C5, &BattleScene_PostMatchTransition_VsResultMenuCreate_Hook)),
-        0x90
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x4396C5, &BattleScene_PostMatchTransition_VsResultMenuCreate_Hook_Wrapper)),
+        // After the call returns, we need to jump to 0x4396CD (the mov eax, [edx+8] instruction)
+        // because bytes at 0x4396CB-0x4396CC are garbage/padding, not real instructions
+        0xEB, 0x01  // JMP +1 (skip 1 byte to reach 0x4396CD from 0x4396CC)
     } }
 };
 
