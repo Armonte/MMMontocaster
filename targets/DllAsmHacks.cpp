@@ -212,33 +212,45 @@ static void RenderOnceAgainDialog() {
 
 static bool ShouldShowOnceAgainDialog(int* preMatchWords, char forceSkipQuickRetry, int hasMenuChoice) {
     if (!preMatchWords) {
+        LOG("ShouldShow: preMatchWords is null");
         return false;
     }
 
-    if (forceSkipQuickRetry != 0 || hasMenuChoice != 0) {
+    LOG("ShouldShow: forceSkip=%d hasMenu=%d state=%d framesSinceLoad=%d roundTimer=%d",
+        (int)forceSkipQuickRetry, hasMenuChoice, preMatchWords[21], preMatchWords[17], preMatchWords[20]);
+
+    // Only reject if explicitly forced to skip - hasMenuChoice=1 is normal for offline VS
+    if (forceSkipQuickRetry != 0) {
+        LOG("ShouldShow: REJECTED - forceSkip set");
         return false;
     }
 
     if (gStoryModeClearFlag && *gStoryModeClearFlag != 0) {
+        LOG("ShouldShow: REJECTED - story mode");
         return false;
     }
 
     if (gVsResultMenuMode && *gVsResultMenuMode != 0) {
+        LOG("ShouldShow: REJECTED - menu mode=%d", *gVsResultMenuMode);
         return false;
     }
 
     if (preMatchWords[21] != 0) {
+        LOG("ShouldShow: REJECTED - state != 0");
         return false;
     }
 
     if (preMatchWords[17] < 30) {
+        LOG("ShouldShow: REJECTED - framesSinceLoad < 30");
         return false;
     }
 
     if (preMatchWords[20] <= 300) {
+        LOG("ShouldShow: REJECTED - roundTimer <= 300");
         return false;
     }
 
+    LOG("ShouldShow: ACCEPTED - will create dialog");
     return true;
 }
 
@@ -777,29 +789,50 @@ typedef void (__cdecl* BattleScene_ProcessResultState_t)(
 );
 BattleScene_ProcessResultState_t BattleScene_ProcessResultState_Original = nullptr;
 
+// Helper to get original function pointer from assembly
+extern "C" void* GetBattleSceneOriginalPtr() {
+    return (void*)BattleScene_ProcessResultState_Original;
+}
+
 // Wrapper to call original function with correct register-based calling convention
-static __attribute__((noinline)) void CallOriginalBattleSceneProcessResultState(
+// MUST be naked because original uses "retn 0Ch" (stdcall - callee cleans stack)
+extern "C" __attribute__((naked)) void CallOriginalBattleSceneProcessResultState(
     void* battleContext, void* sceneContext, int sceneState,
     char forceSkipQuickRetry, int hasMenuChoice, int a6)
 {
-    if (!BattleScene_ProcessResultState_Original) return;
-
-    // Use AT&T syntax assembly
-    __asm__ __volatile__(
-        "pushl %[a6_val]\n\t"      // Push stack params first
-        "pushl %[hmc]\n\t"
-        "movzbl %[fsr], %%eax\n\t"
-        "pushl %%eax\n\t"
-        "movl %[bc], %%edx\n\t"    // Set up register params
-        "movl %[sc], %%ecx\n\t"
-        "movl %[ss], %%eax\n\t"
-        "call *%[orig]\n\t"        // Call original
-        "addl $12, %%esp\n\t"      // Clean stack
-        :
-        : [bc] "g" (battleContext), [sc] "g" (sceneContext), [ss] "g" (sceneState),
-          [fsr] "g" (forceSkipQuickRetry), [hmc] "g" (hasMenuChoice), [a6_val] "g" (a6),
-          [orig] "g" (BattleScene_ProcessResultState_Original)
-        : "eax", "ecx", "edx", "memory", "cc"
+    __asm__ (
+        // Stack: [retaddr][bc][sc][state][forceSkip][hasMenu][a6]
+        "push %esi\n\t"
+        "push %edi\n\t"
+        "push %ebx\n\t"
+        // Load params from stack (offsets adjusted for 3 pushes = +12)
+        "movl 16(%esp), %edx\n\t"      // battleContext
+        "movl 20(%esp), %ecx\n\t"      // sceneContext
+        "movl 24(%esp), %eax\n\t"      // sceneState
+        "movl 36(%esp), %esi\n\t"      // a6
+        "movl 32(%esp), %edi\n\t"      // hasMenuChoice
+        "movzbl 28(%esp), %ebx\n\t"    // forceSkipQuickRetry
+        // Push stack params for original
+        "pushl %esi\n\t"               // a6
+        "pushl %edi\n\t"               // hasMenuChoice
+        "pushl %ebx\n\t"               // forceSkipQuickRetry
+        // Get function pointer via helper (no args, returns in eax)
+        "call _GetBattleSceneOriginalPtr\n\t"
+        "test %eax, %eax\n\t"
+        "jz 1f\n\t"
+        // Save function pointer
+        "movl %eax, %esi\n\t"
+        // Restore edx, ecx, eax (note esp shifted by 3 more pushes = +24 total)
+        "movl 28(%esp), %edx\n\t"      // battleContext
+        "movl 32(%esp), %ecx\n\t"      // sceneContext
+        "movl 36(%esp), %eax\n\t"      // sceneState
+        // Call original via saved pointer
+        "call *%esi\n\t"               // Original does "retn 0Ch"
+        "1:\n\t"
+        "pop %ebx\n\t"
+        "pop %edi\n\t"
+        "pop %esi\n\t"
+        "ret"
     );
 }
 
@@ -912,6 +945,8 @@ extern "C" void BattleScene_ProcessResultState_Hook_Impl(void* battleContext, vo
             gOnceAgainYesNoDialogActive ? 1 : 0,
             gOnceAgainYesNoDialogResult);
 
+        LOG("BattleScene_ProcessResultState_Hook: After state log, before ShouldShow check");
+
         // Attempt to create dialog when conditions are met and we are in the initial state
         if (!gOnceAgainYesNoDialogActive && ShouldShowOnceAgainDialog(bc, forceSkipQuickRetry, hasMenuChoice)) {
             LOG("BattleScene_ProcessResultState_Hook: ShouldShowOnceAgainDialog -> true");
@@ -996,9 +1031,9 @@ extern "C" __attribute__((naked)) void BattleScene_ProcessResultState_Hook() {
         "push %ecx\n\t"              // sceneContext from register
         "push %edx\n\t"              // battleContext from register
         "call _BattleScene_ProcessResultState_Hook_Impl\n\t"
-        "add $24, %esp\n\t"
+        "add $24, %esp\n\t"          // Clean our 6 params
         "pop %ebx\n\t"
-        "ret"
+        "ret $12"                    // Return and clean 12 bytes like original "retn 0Ch"
     );
 }
 
@@ -1072,7 +1107,8 @@ extern "C" void __attribute__((naked)) VsResultMenu_FinalizeSelection_CallHook()
         "call %0\n"
         "add esp, 4\n"
         "popad\n"
-        "jmp 0x00482E88\n"
+        "push 0x00482E88\n"
+        "ret\n"
         ".att_syntax prefix\n"
         :
         : "r"(AsmHacks::VsResultMenu_FinalizeSelection_Hook_Impl_Internal)
