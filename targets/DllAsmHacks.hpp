@@ -614,8 +614,8 @@ static const AsmList loadCustomPalettesAsm = {
 };
 
 // VS Result Menu hooks for Once Again plugin
-extern "C" void VsResultMenu_Init_Hook(void* manager, void* context);
-extern "C" void VsResultMenu_FinalizeSelection_Hook(void* manager, void* tag);
+extern "C" void VsResultMenu_Init_CallHook();
+extern "C" void __attribute__((stdcall)) VsResultMenu_FinalizeSelection_Hook(void* tag);
 extern "C" void BattleScene_ApplyResultSelection_Hook(uint32_t inputState);
 extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook(int skipQuickRetry);
 extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleContext, int sceneState, char forceSkipQuickRetry, int hasMenuChoice, int a6);

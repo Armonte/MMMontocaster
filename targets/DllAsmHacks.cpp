@@ -771,29 +771,65 @@ void _naked_paletteCallback() {
 // VS Result Menu hooks for Once Again plugin
 
 // Hook 1: VsResultMenu_Init - Force skipQuickRetryGate = 0 for offline versus
-extern "C" void VsResultMenu_Init_Hook(void* manager, void* context) {
-    // Check if offline versus (not network/replay/story)
-    if (gVsResultMenuMode && *gVsResultMenuMode == 0) {
-        if (gStoryModeClearFlag && *gStoryModeClearFlag == 0) {
-            // Force skipQuickRetryGate = 0 to enable ONCE AGAIN prompt
-            // Offset 0xD0 in CVSResultMenuManager struct
-            if (manager) {
-                int32_t* skipQuickRetryGate = (int32_t*)((char*)manager + 0xD0);
-                *skipQuickRetryGate = 0;
-            }
+static void VsResultMenu_Init_Hook_Impl_Internal(void* prevMenu, void* managerPtr, void* contextPtr) {
+    (void)prevMenu;
+
+    int32_t initialSkipGate = -1;
+    auto* skipQuickRetryGate =
+        managerPtr ? reinterpret_cast<int32_t*>(reinterpret_cast<char*>(managerPtr) + 0xD0) : nullptr;
+    if (skipQuickRetryGate) {
+        initialSkipGate = *skipQuickRetryGate;
+    }
+
+    LOG("VsResultMenu_Init_Hook: prev=%p manager=%p context=%p mode=%d storyClear=%d skipGate(before)=%d",
+        prevMenu,
+        managerPtr,
+        contextPtr,
+        gVsResultMenuMode ? *gVsResultMenuMode : -1,
+        gStoryModeClearFlag ? *gStoryModeClearFlag : -1,
+        initialSkipGate);
+
+    if (managerPtr &&
+        gVsResultMenuMode && *gVsResultMenuMode == 0 &&
+        gStoryModeClearFlag && *gStoryModeClearFlag == 0) {
+        if (skipQuickRetryGate && *skipQuickRetryGate != 0) {
+            LOG("VsResultMenu_Init_Hook: forcing skipQuickRetryGate -> 0 (was %d)", *skipQuickRetryGate);
+            *skipQuickRetryGate = 0;
         }
     }
-    
-    // Call original function
-    emitCall(0x481D80);
+}
+
+extern "C" void __attribute__((naked)) VsResultMenu_Init_CallHook() {
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n"
+        "push ecx\n"
+        "push eax\n"
+        "push edx\n"
+        "mov eax, [esp+16]\n"   // manager pointer
+        "mov edx, [esp+20]\n"   // context pointer
+        "mov ecx, [esp+8]\n"    // previous menu pointer (saved ecx)
+        "push edx\n"
+        "push eax\n"
+        "push ecx\n"
+        "call _VsResultMenu_Init_Hook_Impl\n"
+        "add esp, 12\n"
+        "pop edx\n"
+        "pop eax\n"
+        "pop ecx\n"
+        "mov eax, 0x00481D80\n"
+        "jmp eax\n"
+        ".att_syntax prefix\n"
+    );
 }
 
 // Stub hook placeholders to keep build stable while Once Again integration is refactored.
 // These hooks simply forward to the original game code when invoked.
 extern "C" int ResultMenu_SetupWinQuote_Hook() {
     __asm__ __volatile__(
-        ".att_syntax\n"
-        "jmp 0x0043A700\n"  // Jump back to original ResultMenu_SetupWinQuote
+        ".intel_syntax noprefix\n"
+        "mov eax, 0x0043A700\n"  // Load original ResultMenu_SetupWinQuote
+        "jmp eax\n"
+        ".att_syntax prefix\n"
     );
     return 0; // Never reached
 }
@@ -807,35 +843,104 @@ extern "C" int ResultMenu_SetupWinQuote_Hook_Impl(int result, int* preMatchWords
     return original(result, preMatchWords, sceneState, hasMenuChoice);
 }
 
-extern "C" void BattleScene_ProcessResultState_Trampoline(void* ctx, void* battleContext, int sceneState, char forceSkipQuickRetry, int hasMenuChoice, int a6, void* /*originalReturnAddress*/) {
-    typedef void(__stdcall* BattleScene_ProcessResultState_t)(void*, void*, int, char, int, int);
-    static BattleScene_ProcessResultState_t original = reinterpret_cast<BattleScene_ProcessResultState_t>(0x0043A4C0);
-    if (!original) {
-        return;
-    }
-    original(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6);
+extern "C" __attribute__((naked)) void BattleScene_ProcessResultState_Trampoline(
+    void* /*ctx*/, void* /*battleContext*/, int /*sceneState*/,
+    char /*forceSkipQuickRetry*/, int /*hasMenuChoice*/, int /*a6*/, void* /*originalReturnAddress*/) {
+    __asm__ __volatile__(
+        ".intel_syntax noprefix;"
+        // Load register arguments before we disturb the stack
+        "mov ecx, [esp+4];"      // ctx
+        "mov edx, [esp+8];"      // battleContext
+        "mov eax, [esp+12];"     // sceneState
+
+        // Save original callee-saved registers (mirrors original function prologue)
+        "push ebx;"
+        "push esi;"
+        "push edi;"
+
+        // Load additional parameters from their shifted locations
+        "mov ebp, [esp+0x1C];"   // forceSkipQuickRetry (after pushes)
+        "mov ebx, [esp+0x20];"   // hasMenuChoice
+        "mov edi, [esp+0x28];"   // originalReturnAddress
+        "mov esi, [esp+0x24];"   // a6 / transitionArg
+
+        // Reconstruct expected stack layout
+        "mov [esp+0x0C], edi;"   // return address
+        "mov [esp+0x10], ebp;"   // forceSkipQuickRetry
+        "mov dword ptr [esp+0x14], 0;" // a5 (unused)
+        "mov [esp+0x18], esi;"   // a6 / transitionArg
+        "mov dword ptr [esp+0x1C], 0;" // gap filler
+        "mov [esp+0x20], ebx;"   // hasMenuChoice
+
+        // Prepare registers as original prologue would have
+        "mov esi, edx;"          // battleContext
+        "mov edi, ecx;"          // ctx
+
+        // Jump to original function past the patched call
+        "jmp 0x43A4C7;"
+        ".att_syntax;"
+    );
 }
 
 extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleContext, int sceneState, char forceSkipQuickRetry, int hasMenuChoice, int a6) {
+    // Extract the original return address from the stack
+    void* originalReturnAddress = __builtin_return_address(0);
+
+    static int stackLogCounter = 0;
+    if (stackLogCounter < 10) {
+        uintptr_t espSnapshot = 0;
+        __asm__ __volatile__("movl %%esp, %0" : "=r"(espSnapshot));
+        auto* stackWords = reinterpret_cast<uintptr_t*>(espSnapshot);
+        LOG("BattleScene_ProcessResultState_Hook: esp=%p ret=%p arg_ctx=%p arg_battleContext=%p arg_scene=%p raw_stack0=[%p,%p,%p]",
+            reinterpret_cast<void*>(espSnapshot),
+            reinterpret_cast<void*>(stackWords[0]),
+            ctx,
+            battleContext,
+            reinterpret_cast<void*>(sceneState),
+            reinterpret_cast<void*>(stackWords[1]),
+            reinterpret_cast<void*>(stackWords[2]),
+            reinterpret_cast<void*>(stackWords[3]));
+        LOG("BattleScene_ProcessResultState_Hook: params forceSkip=%d hasMenu=%d a6=%d originalRet=%p",
+            static_cast<int>(forceSkipQuickRetry),
+            hasMenuChoice,
+            a6,
+            originalReturnAddress);
+        ++stackLogCounter;
+    }
+
     try {
         if (!battleContext) {
-            emitCall(0x43A4C0);
+            LOG("BattleScene_ProcessResultState_Hook: battleContext=null sceneState=%d", sceneState);
+            BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, originalReturnAddress);
             return;
         }
 
         int* bc = (int*)battleContext;
         if (!bc) {
-            emitCall(0x43A4C0);
+            LOG("BattleScene_ProcessResultState_Hook: battleContext cast failed sceneState=%d", sceneState);
+            BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, originalReturnAddress);
             return;
         }
 
         int state = bc[21];
+        LOG("BattleScene_ProcessResultState_Hook: state=%d sceneState=%d forceSkip=%d hasMenu=%d a6=%d dialogActive=%d dialogResult=%d",
+            state,
+            sceneState,
+            forceSkipQuickRetry,
+            hasMenuChoice,
+            a6,
+            gOnceAgainYesNoDialogActive ? 1 : 0,
+            gOnceAgainYesNoDialogResult);
 
         // Attempt to create dialog when conditions are met and we are in the initial state
         if (!gOnceAgainYesNoDialogActive && ShouldShowOnceAgainDialog(bc, forceSkipQuickRetry, hasMenuChoice)) {
+            LOG("BattleScene_ProcessResultState_Hook: ShouldShowOnceAgainDialog -> true");
             if (CreateOnceAgainDialog(bc)) {
                 bc[21] = 20;
                 state = 20;
+                LOG("BattleScene_ProcessResultState_Hook: dialog created; forcing state=20");
+            } else {
+                LOG("BattleScene_ProcessResultState_Hook: dialog creation failed");
             }
         }
 
@@ -845,35 +950,39 @@ extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleConte
             if (state == 0) {
                 bc[21] = 20;
                 state = 20;
+                LOG("BattleScene_ProcessResultState_Hook: adjusted state 0 -> 20 while dialog active");
             }
 
-            if (state == 20) {
-                if (UpdateOnceAgainDialog()) {
-                    if (gOnceAgainYesNoDialogResult == 1) { // YES selected
+            if (gOnceAgainYesNoDialogResult == -1) {
+                UpdateOnceAgainDialog();
+                RenderOnceAgainDialog();
+                if (gOnceAgainYesNoDialogResult == 1) {
+                    LOG("BattleScene_ProcessResultState_Hook: dialog YES selected -> rematch");
+                    bc[21] = 8;
+                    DestroyOnceAgainDialog();
+                    try {
                         if (netManPtr) {
-                            try {
-                                netManPtr->exportInputs();
-                            } catch (...) {
-                                LOG("BattleScene_ProcessResultState_Hook: exportInputs threw");
-                            }
+                            netManPtr->exportInputs();
+                            LOG("BattleScene_ProcessResultState_Hook: exportInputs succeeded (YES)");
                         }
-
-                        DestroyOnceAgainDialog();
-                        bc[21] = 10;
-                        emitCall(0x43A4C0);
-                        return;
+                    } catch (...) {
+                        LOG("BattleScene_ProcessResultState_Hook: exportInputs threw");
                     }
+                    BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, originalReturnAddress);
+                    return;
+                }
 
-                    if (gOnceAgainYesNoDialogResult == 0) { // NO selected
-                        VsResultMenu_Create_Original(0);
-                        DestroyOnceAgainDialog();
-                        bc[21] = 0;
-                        emitCall(0x43A4C0);
-                        return;
-                    }
+                if (gOnceAgainYesNoDialogResult == 0) { // NO selected
+                    LOG("BattleScene_ProcessResultState_Hook: dialog NO selected -> returning to results");
+                    VsResultMenu_Create_Original(0);
+                    DestroyOnceAgainDialog();
+                    bc[21] = 0;
+                    BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, originalReturnAddress);
+                    return;
                 }
 
                 RenderOnceAgainDialog();
+                LOG("BattleScene_ProcessResultState_Hook: dialog pending result (state=%d)", bc[21]);
                 return; // Keep dialog active without advancing state machine
             }
         }
@@ -881,11 +990,26 @@ extern "C" void BattleScene_ProcessResultState_Hook(void* ctx, void* battleConte
         LOG("BattleScene_ProcessResultState_Hook: Exception caught, calling original");
     }
 
-    emitCall(0x43A4C0);
+    BattleScene_ProcessResultState_Trampoline(ctx, battleContext, sceneState, forceSkipQuickRetry, hasMenuChoice, a6, originalReturnAddress);
 }
 
 // Hook 2: VsResultMenu_FinalizeSelection - Intercept ONCE_AGAIN selection
-extern "C" void VsResultMenu_FinalizeSelection_Hook(void* manager, void* tag) {
+extern "C" void VsResultMenu_FinalizeSelection_Trampoline(void* manager, void* tag) {
+    __asm__ __volatile__(
+        "movl %0, %%ecx;\n"
+        "pushl %1;\n"
+        "movl %2, %%eax;\n"
+        "call *%%eax;\n"
+        "addl $4, %%esp;\n"
+        :
+        : "r"(manager), "r"(tag), "i"(0x00482E86)
+        : "eax", "ecx", "memory"
+    );
+}
+
+extern "C" void __attribute__((stdcall)) VsResultMenu_FinalizeSelection_Hook(void* tag) {
+    void* manager;
+    __asm__ __volatile__("movl %%ecx, %0" : "=r"(manager));
     bool isOnceAgain = false;
     if (tag) {
         struct MenuString {
@@ -906,6 +1030,12 @@ extern "C" void VsResultMenu_FinalizeSelection_Hook(void* manager, void* tag) {
             tagStr = menuTag->pLongString;
         }
 
+        LOG("VsResultMenu_FinalizeSelection_Hook: manager=%p tag='%s' length=%d maxLength=%d",
+            manager,
+            tagStr ? tagStr : "<null>",
+            menuTag->length,
+            menuTag->maxLength);
+
         if (tagStr) {
             if (strcmp(tagStr, "ONCE_AGAIN") == 0 || strcmp(tagStr, "ONCE AGAIN") == 0 || strncmp(tagStr, "ONCE", 4) == 0) {
                 isOnceAgain = true;
@@ -916,12 +1046,19 @@ extern "C" void VsResultMenu_FinalizeSelection_Hook(void* manager, void* tag) {
     if (isOnceAgain && netManPtr) {
         try {
             netManPtr->exportInputs();
+            LOG("VsResultMenu_FinalizeSelection_Hook: exportInputs succeeded");
         } catch (...) {
             LOG("VsResultMenu_FinalizeSelection_Hook: exportInputs threw");
         }
+    } else {
+        LOG("VsResultMenu_FinalizeSelection_Hook: not ONCE AGAIN (isOnceAgain=%d)", isOnceAgain ? 1 : 0);
     }
 
-    emitCall(0x482E80);
+    LOG("VsResultMenu_FinalizeSelection_Hook: gVsResultMenuInputState=%d skipGate=%d",
+        gVsResultMenuInputState,
+        manager ? *(int32_t*)((char*)manager + 0xD0) : -1);
+
+    VsResultMenu_FinalizeSelection_Trampoline(manager, tag);
 }
 
 // Hook 3: BattleScene_ApplyResultSelection - currently passthrough
@@ -960,9 +1097,8 @@ extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook
 }
 
 const AsmList hookVsResultMenuInit = {
-    { (void*)0x481D80, {
-        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x481D80, &VsResultMenu_Init_Hook)),
-        0x90  // nop (original function prologue will be preserved by hook)
+    { (void*)0x482D4B, {
+        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x482D4B, &VsResultMenu_Init_CallHook))
     } }
 };
 
@@ -987,11 +1123,17 @@ const AsmList hookBattleScenePostMatchTransition = {
     } }
 };
 
+// NOTE: This will be patched at runtime in DllMain after the DLL loads
+// because we can't compute the correct address at compile time
 const AsmList hookBattleSceneProcessResultState = {
     { (void*)0x43A4C0, {
-        0xE8, INLINE_DWORD(AsmHacks::detail::rel32(0x43A4C0, &BattleScene_ProcessResultState_Hook)),
-        0x90
+        // Placeholder: will be replaced with "push <hook_addr>; ret" at runtime
+        0x90, 0x90, 0x90, 0x90, 0x90, 0x90  // 6 NOPs
     } }
 };
 
 } // namespace AsmHacks
+
+extern "C" __attribute__((used)) void VsResultMenu_Init_Hook_Impl(void* prevMenu, void* managerPtr, void* contextPtr) {
+    AsmHacks::VsResultMenu_Init_Hook_Impl_Internal(prevMenu, managerPtr, contextPtr);
+}

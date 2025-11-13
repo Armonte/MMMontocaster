@@ -1909,6 +1909,7 @@ struct DllMain
                 }
 
                 // VS Result Menu hooks for Once Again plugin
+                // ENABLED: These hooks use trampolines to avoid infinite recursion
                 for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuInit )
                     WRITE_ASM_HACK ( hack );
                 for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuFinalizeSelection )
@@ -1917,10 +1918,15 @@ struct DllMain
                 // They're the same function at 0x439420, and the hook signature was wrong
                 // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneApplyResultSelection )
                 //     WRITE_ASM_HACK ( hack );
-                for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleScenePostMatchTransition )
-                    WRITE_ASM_HACK ( hack );
-                for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneProcessResultState )
-                    WRITE_ASM_HACK ( hack );
+                // Hook ResultMenu_SetupWinQuote - CORRECT timing (after YOU WIN, before WINNER text)
+                // TEMPORARILY DISABLED: hookResultMenuSetupWinQuote not implemented
+                // for ( const AsmHacks::Asm& hack : AsmHacks::hookResultMenuSetupWinQuote )
+                //     WRITE_ASM_HACK ( hack );
+                // TEMPORARILY DISABLED: BattleScene_ProcessResultState hook for case 20 YES/NO dialog handling
+                // This hook causes crashes and needs to be rewritten using MinHook properly
+                // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneProcessResultState )
+                //     WRITE_ASM_HACK ( hack );
+                LOG("BattleScene_ProcessResultState hook DISABLED pending MinHook rewrite");
 
                 if ( netMan.autoReplaySave )
                 {
