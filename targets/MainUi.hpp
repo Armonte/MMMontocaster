@@ -114,6 +114,8 @@ private:
     void settings();
     void update();
     void results();
+    void mods();
+    void plugins();
     void wait();
 
     bool areYouSure();
@@ -157,5 +159,17 @@ private:
     void setAddr( MatchmakingManager* lobby, std::string addr );
     void setMode( MatchmakingManager* lobby, std::string mode );
     void unlock( MatchmakingManager* lobby );
+
+    // Mod management helpers
+    void listMods();
+    void enableMod();
+    void disableMod();
+    void setModPriority();
+    void showModInfo();
+    void selectAnnouncerVoiceSet();
+    
+    // Plugin management helpers
+    void listPlugins();
+    void showPluginInfo();
 
 };

@@ -8,6 +8,7 @@
 #include "PluginHost/DetourManager.hpp"
 
 #include "cccaster/hooks.h"
+#include "cccaster/detour.h"
 
 namespace cccaster::plugin {
 
@@ -15,6 +16,7 @@ struct PluginContext {
     std::string id;
     std::vector<std::uint64_t> registered_handles;
     std::vector<std::uint64_t> registered_input_handles;
+    std::vector<PluginDetourHandle> registered_detours;
 };
 
 class HookService {

@@ -3,11 +3,13 @@
 #include "Constants.hpp"
 #include "Exceptions.hpp"
 #include "DllNetplayManager.hpp"
+#include "PaletteManager.hpp"
 
 #include <vector>
 #include <array>
 #include <windows.h>
 #include <map>
+#include <unordered_map>
 #include <cstdint>
 #include <type_traits>
 
@@ -179,8 +181,12 @@ extern uint32_t numLoadedColors;
 void colorLoadCallback ( uint32_t player, uint32_t chara, uint32_t *paletteData );
 void colorLoadCallback ( uint32_t player, uint32_t chara, uint32_t palette, uint32_t *singlePaletteData );
 
-// Setter for MinHook trampoline pointer (called from DllMain.cpp after MinHook installation)
-void SetBattleSceneProcessResultStateOriginal(void* originalFunc);
+// Get palettes for network sync
+const std::unordered_map<uint32_t, PaletteManager>& getPalMans ( uint32_t player );
+
+// Set palettes for network sync
+void setPalMans ( uint32_t player, const std::map<uint32_t, PaletteManager>& palettes );
+
 
 
 // Struct for storing assembly code
@@ -615,34 +621,5 @@ extern std::map<int, std::map<int, std::array<DWORD, 256>>> palettes;
 static const AsmList loadCustomPalettesAsm = {
     PATCHJUMP(0x0041f87a, _naked_paletteCallback),
 };
-
-// VS Result Menu hooks for Once Again plugin
-extern "C" void VsResultMenu_Init_CallHook();
-extern "C" void __attribute__((stdcall)) VsResultMenu_FinalizeSelection_Hook(void* tag);
-extern "C" void BattleScene_ApplyResultSelection_Hook(uint32_t inputState);
-extern "C" int BattleScene_PostMatchTransition_VsResultMenuCreate_Hook_Wrapper();  // Assembly wrapper - extracts battleContext from caller's frame
-extern "C" int BattleScene_PostMatchTransition_VsResultMenuCreate_Hook_Impl(void* battleContext, int skipQuickRetry);  // C++ implementation
-extern "C" int __stdcall BattleScene_PostMatchTransition_VsResultMenuCreate_Hook(int skipQuickRetry);  // Old signature (kept for compatibility)
-extern "C" void BattleScene_ProcessResultState_Hook_Wrapper();  // Naked wrapper for __userpurge - MinHook at 0x43A4C0
-
-// NEW: C++ Replacement Function (ready to switch to - currently disabled)
-// Wrapper converts from __userpurge to __cdecl, then calls the C++ implementation
-extern "C" void BattleScene_ProcessResultState_Replacement_Wrapper();  // Naked wrapper for MinHook at 0x43A4C0
-extern "C" void BattleScene_ProcessResultState_CallOriginal_Wrapper(  // Assembly wrapper to call original with correct __userpurge
-    void* battleContext, void* sceneContext, int sceneState, char forceSkipQuickRetry, int hasMenuChoice, int a6);
-
-// MinHook function pointers (initialized in DllMain.cpp)
-// Original function uses __userpurge: edx=battleContext, ecx=sceneContext, eax=sceneState, stack=rest
-typedef void (__cdecl* BattleScene_ProcessResultState_t)(
-    void* battleContext, void* sceneContext, int sceneState,
-    char forceSkipQuickRetry, int hasMenuChoice, int a6
-);
-extern BattleScene_ProcessResultState_t BattleScene_ProcessResultState_Original;
-
-extern const AsmList hookVsResultMenuInit;
-extern const AsmList hookVsResultMenuFinalizeSelection;
-extern const AsmList hookBattleSceneApplyResultSelection;
-extern const AsmList hookBattleScenePostMatchTransition;
-// NOTE: hookBattleSceneProcessResultState now installed via MinHook (no byte patches)
 
 } // namespace AsmHacks

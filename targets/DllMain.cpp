@@ -1435,6 +1435,54 @@ struct DllMain
                 netMan.setRngState ( msg->getAs<RngState>() );
                 return;
 
+            case MsgType::PaletteSync:
+            {
+                if ( options[Options::DisablePaletteSync] )
+                {
+                    LOG ( "PaletteSync received but disabled by option" );
+                    return;
+                }
+                
+                PaletteSync sync = msg->getAs<PaletteSync>();
+                
+                if ( !sync.isValid() )
+                {
+                    LOG ( "Invalid PaletteSync received - rejecting for security" );
+                    return;
+                }
+                
+                // Apply remote player's palettes
+                // Note: sync.player is the REMOTE player's number
+                uint8_t remotePlayer = sync.player;
+                
+                LOG ( "Received PaletteSync for remote player %d with %zu characters",
+                      remotePlayer, sync.palettes.size() );
+                
+                // Apply remote player's palettes
+                // Remote player 1 -> our palMans[0], remote player 2 -> our palMans[1]
+                AsmHacks::setPalMans ( remotePlayer, sync.palettes );
+                
+                // Log details
+                for ( const auto& kv : sync.palettes )
+                {
+                    uint32_t charaID = kv.first;
+                    const PaletteManager& remotePM = kv.second;
+                    
+                    size_t paletteCount = 0;
+                    size_t colorCount = 0;
+                    for ( const auto& p : remotePM.getPalettes() )
+                    {
+                        paletteCount++;
+                        colorCount += p.second.size();
+                    }
+                    
+                    LOG ( "  - Character %u: %zu palette(s) with %zu custom color(s)",
+                          charaID, paletteCount, colorCount );
+                }
+                
+                return;
+            }
+
 #ifndef RELEASE
             case MsgType::SyncHash:
                 remoteSync.push_back ( msg );
@@ -1829,6 +1877,31 @@ struct DllMain
 
                     netMan.setRemotePlayer ( remotePlayer );
 
+                    // Send palette sync after NetplayConfig is confirmed (if not disabled)
+                    if ( !options[Options::DisablePaletteSync] && localPlayer != 0 )
+                    {
+                        const auto& ourPalettes = AsmHacks::getPalMans ( localPlayer );
+                        if ( !ourPalettes.empty() )
+                        {
+                            // Convert unordered_map to map for PaletteSync
+                            std::map<uint32_t, PaletteManager> paletteMap;
+                            for ( const auto& kv : ourPalettes )
+                                paletteMap[kv.first] = kv.second;
+                            
+                            PaletteSync paletteSync ( localPlayer, paletteMap );
+                            if ( paletteSync.isValid() )
+                            {
+                                LOG ( "Sending PaletteSync for player %d with %zu characters",
+                                      localPlayer, paletteSync.palettes.size() );
+                                procMan.ipcSend ( new PaletteSync ( paletteSync ) );
+                            }
+                            else
+                            {
+                                LOG ( "PaletteSync validation failed - not sending" );
+                            }
+                        }
+                    }
+
                     if ( clientMode.isHost() )
                     {
                         serverCtrlSocket = SmartSocket::listenTCP ( this, address.port );
@@ -1909,64 +1982,7 @@ struct DllMain
                     // *CC_STAGE_ANIMATION_OFF_ADDR = 1;
                 }
 
-                // VS Result Menu hooks for Once Again plugin
-                // ENABLED: These hooks use trampolines to avoid infinite recursion
-                for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuInit )
-                    WRITE_ASM_HACK ( hack );
-                for ( const AsmHacks::Asm& hack : AsmHacks::hookVsResultMenuFinalizeSelection )
-                    WRITE_ASM_HACK ( hack );
-                // Hook BattleScene_PostMatchTransition at VsResultMenu_Create call site (0x4396C5)
-                // This intercepts VS Results Menu creation and injects YES/NO dialog BEFORE the menu appears
-                // TEMPORARILY DISABLED: Testing if this hook is causing the crash
-                // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleScenePostMatchTransition )
-                //     WRITE_ASM_HACK ( hack );
-                // TEMPORARILY DISABLED: BattleScene_ApplyResultSelection hook conflicts with BattleScene_PostMatchTransition
-                // They're the same function at 0x439420, and the hook signature was wrong
-                // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneApplyResultSelection )
-                //     WRITE_ASM_HACK ( hack );
-                // Hook ResultMenu_SetupWinQuote - CORRECT timing (after YOU WIN, before WINNER text)
-                // TEMPORARILY DISABLED: hookResultMenuSetupWinQuote not implemented
-                // for ( const AsmHacks::Asm& hack : AsmHacks::hookResultMenuSetupWinQuote )
-                //     WRITE_ASM_HACK ( hack );
-                // TEMPORARILY DISABLED: BattleScene_ProcessResultState hook for case 20 YES/NO dialog handling
-                // This hook causes crashes and needs to be rewritten using MinHook properly
-                // for ( const AsmHacks::Asm& hack : AsmHacks::hookBattleSceneProcessResultState )
-                //     WRITE_ASM_HACK ( hack );
-                // Install BattleScene_ProcessResultState hook via MinHook (case dispatcher)
-                // TEMPORARILY DISABLED: Testing if this hook is causing the crash
-                // 
-                // TO SWITCH TO NEW C++ REPLACEMENT FUNCTION:
-                // Change the second parameter from:
-                //   (void*)&AsmHacks::BattleScene_ProcessResultState_Hook_Wrapper,
-                // to:
-                //   (void*)&AsmHacks::BattleScene_ProcessResultState_Replacement_Wrapper,
-                // 
-                // The replacement function eliminates register restoration complexity by
-                // handling case 20 in pure C++ and delegating all other cases to the original.
-                /*
-                {
-                    void* originalFunc = nullptr;
-                    MH_STATUS hookStatus = MH_CreateHook(
-                        (void*)0x43A4C0,  // BattleScene_ProcessResultState
-                        // (void*)&AsmHacks::BattleScene_ProcessResultState_Hook_Wrapper,  // OLD: Assembly wrapper
-                        (void*)&AsmHacks::BattleScene_ProcessResultState_Replacement_Wrapper,  // NEW: C++ replacement
-                        &originalFunc     // Save the trampoline pointer
-                    );
-                    if (hookStatus != MH_OK) {
-                        LOG("Failed to create MinHook for BattleScene_ProcessResultState: %d", (int)hookStatus);
-                    } else {
-                        // Set the trampoline pointer in AsmHacks
-                        AsmHacks::SetBattleSceneProcessResultStateOriginal(originalFunc);
-
-                        hookStatus = MH_EnableHook((void*)0x43A4C0);
-                        if (hookStatus != MH_OK) {
-                            LOG("Failed to enable MinHook for BattleScene_ProcessResultState: %d", (int)hookStatus);
-                        } else {
-                            LOG("BattleScene_ProcessResultState hook ENABLED via MinHook at 0x43A4C0, trampoline=%p", originalFunc);
-                        }
-                    }
-                }
-                */
+                // Once Again behavior is now handled entirely by the plugin's SafetyHook detours.
 
                 if ( netMan.autoReplaySave )
                 {

@@ -38,7 +38,8 @@ ENUM ( Options,
        NoFork,
        AppDir,
        SessionId,
-       HeldStartDuration );
+       HeldStartDuration,
+       DisablePaletteSync );
 
 
 // Forward declaration

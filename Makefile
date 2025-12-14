@@ -31,7 +31,8 @@ GTEST_CC_SRCS = 3rdparty/gtest/fused-src/gtest/gtest-all.cc
 IMGUI_CPP_SRCS = $(wildcard 3rdparty/imgui/*.cpp) 3rdparty/imgui/backends/imgui_impl_win32.cpp 3rdparty/imgui/backends/imgui_impl_dx9.cpp
 JLIB_CC_SRCS = $(wildcard 3rdparty/JLib/*.cc)
 HOOK_CC_SRCS = $(wildcard 3rdparty/minhook/src/*.cc 3rdparty/d3dhook/*.cc)
-HOOK_C_SRCS = $(wildcard 3rdparty/minhook/src/hde32/*.c)
+HOOK_C_SRCS = $(wildcard 3rdparty/minhook/src/hde32/*.c) external/safetyhook/Zydis.c
+SAFETYHOOK_C_SRCS = external/safetyhook/Zydis.c
 CONTRIB_CC_SRCS = $(GTEST_CC_SRCS) $(JLIB_CC_SRCS)
 CONTRIB_CPP_SRCS = $(IMGUI_CPP_SRCS)
 CONTRIB_C_SRCS = $(wildcard 3rdparty/*.c)
@@ -39,32 +40,33 @@ CONTRIB_C_SRCS = $(wildcard 3rdparty/*.c)
 # Main program sources
 LIB_CPP_SRCS = $(wildcard lib/*.cpp)
 BASE_CPP_SRCS = $(wildcard netplay/*.cpp) $(LIB_CPP_SRCS) $(wildcard sequences/*.cpp)
-MAIN_CPP_SRCS = $(wildcard targets/Main*.cpp tests/*.cpp targets/PluginHost/*.cpp $(filter-out targets/PluginHost/Services/ReplayService.cpp targets/PluginHost/Services/ReplayServiceFactory.cpp targets/PluginHost/Services/MenuService.cpp,$(wildcard targets/PluginHost/Services/*.cpp))) targets/PluginHost/Services/ReplayServiceFactoryStub.cpp targets/PluginHost/Services/MenuServiceStub.cpp $(BASE_CPP_SRCS)
-DLL_CPP_SRCS = $(wildcard targets/Dll*.cpp) $(wildcard targets/PluginHost/*.cpp) $(filter-out targets/PluginHost/Services/ReplayServiceFactoryStub.cpp targets/PluginHost/Services/MenuServiceStub.cpp,$(wildcard targets/PluginHost/Services/*.cpp)) $(filter-out lib/ConsoleUi.cpp,$(BASE_CPP_SRCS))
+MAIN_CPP_SRCS = $(wildcard targets/Main*.cpp tests/*.cpp targets/PluginHost/*.cpp $(filter-out targets/PluginHost/Services/ReplayService.cpp targets/PluginHost/Services/ReplayServiceFactory.cpp targets/PluginHost/Services/MenuService.cpp targets/PluginHost/Services/DetourService.cpp,$(wildcard targets/PluginHost/Services/*.cpp))) targets/PluginHost/Services/ReplayServiceFactoryStub.cpp targets/PluginHost/Services/MenuServiceStub.cpp targets/PluginHost/Services/DetourServiceStub.cpp $(wildcard targets/ModManager/*.cpp) $(BASE_CPP_SRCS) external/safetyhook/safetyhook.cpp
+DLL_CPP_SRCS = $(wildcard targets/Dll*.cpp) $(wildcard targets/PluginHost/*.cpp) $(filter-out targets/PluginHost/Services/ReplayServiceFactoryStub.cpp targets/PluginHost/Services/MenuServiceStub.cpp targets/PluginHost/Services/DetourServiceStub.cpp,$(wildcard targets/PluginHost/Services/*.cpp)) $(wildcard targets/ModManager/*.cpp) $(filter-out lib/ConsoleUi.cpp,$(BASE_CPP_SRCS)) external/safetyhook/safetyhook.cpp
 
 PLUGIN_CPP_SRCS_REPLAY = $(wildcard plugins/replay-takeover/*.cpp)
 PLUGIN_CPP_SRCS_HUD = $(wildcard plugins/hud-theme/*.cpp)
-PLUGIN_CPP_SRCS_ONCE_AGAIN = $(wildcard plugins/once-again/*.cpp)
+# PLUGIN_CPP_SRCS_ONCE_AGAIN = $(wildcard plugins/once-again/*.cpp)  # Disabled for now
 PLUGIN_OBJECTS_REPLAY = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_REPLAY:.cpp=.o))
 PLUGIN_OBJECTS_HUD = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_HUD:.cpp=.o))
-PLUGIN_OBJECTS_ONCE_AGAIN = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_ONCE_AGAIN:.cpp=.o))
+# PLUGIN_OBJECTS_ONCE_AGAIN = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_ONCE_AGAIN:.cpp=.o))  # Disabled for now
 PLUGIN_DLL_REPLAY = plugins/replay-takeover/replay_takeover.dll
 PLUGIN_DLL_HUD = plugins/hud-theme/hud_theme.dll
-PLUGIN_DLL_ONCE_AGAIN = plugins/once-again/once_again.dll
-# TEMPORARILY DISABLED: once-again plugin conflicts with DLL hooks
-# PLUGIN_DLLS = $(PLUGIN_DLL_REPLAY) $(PLUGIN_DLL_HUD) $(PLUGIN_DLL_ONCE_AGAIN)
+# PLUGIN_DLL_ONCE_AGAIN = plugins/once-again/once_again.dll  # Disabled for now
+# Re-enabled: once-again is now a pure plugin (no DLL hooks)
+# Disabled once-again plugin for now
 PLUGIN_DLLS = $(PLUGIN_DLL_REPLAY) $(PLUGIN_DLL_HUD)
 
 NON_GEN_SRCS = \
-	$(wildcard netplay/*.cpp tools/*.cpp targets/*.cpp targets/PluginHost/*.cpp targets/PluginHost/Services/*.cpp lib/*.cpp tests/*.cpp sequences/*.cpp)
+	$(wildcard netplay/*.cpp tools/*.cpp targets/*.cpp targets/PluginHost/*.cpp targets/PluginHost/Services/*.cpp targets/ModManager/*.cpp lib/*.cpp tests/*.cpp sequences/*.cpp)
 NON_GEN_HEADERS = \
 	$(filter-out lib/Version.%.hpp lib/Protocol.%.hpp,$(wildcard netplay/*.hpp targets/*.hpp targets/PluginHost/*.hpp targets/PluginHost/Services/*.hpp lib/*.hpp tests/*.hpp sequences/*.hpp))
 AUTOGEN_HEADERS = $(wildcard lib/Version.*.hpp lib/Protocol.*.hpp)
 
 # Main program objects
 LIB_OBJECTS = $(LIB_CPP_SRCS:.cpp=.o) $(CONTRIB_C_SRCS:.c=.o)
-MAIN_OBJECTS = $(MAIN_CPP_SRCS:.cpp=.o) $(CONTRIB_CC_SRCS:.cc=.o) $(CONTRIB_CPP_SRCS:.cpp=.o) $(CONTRIB_C_SRCS:.c=.o)
+MAIN_OBJECTS = $(MAIN_CPP_SRCS:.cpp=.o) $(CONTRIB_CC_SRCS:.cc=.o) $(CONTRIB_CPP_SRCS:.cpp=.o) $(CONTRIB_C_SRCS:.c=.o) $(SAFETYHOOK_C_SRCS:.c=.o)
 DLL_OBJECTS = $(DLL_CPP_SRCS:.cpp=.o) $(HOOK_CC_SRCS:.cc=.o) $(HOOK_C_SRCS:.c=.o) $(CONTRIB_C_SRCS:.c=.o) $(CONTRIB_CPP_SRCS:.cpp=.o)
+DLL_OBJECTS := $(filter-out targets/PluginHost/Services/DetourServiceStub.o,$(DLL_OBJECTS))
 
 # Tool chain
 PREFIX = i686-w64-mingw32-
@@ -101,16 +103,21 @@ DEFINES += -DMBAA_EXE='"$(MBAA_EXE)"' -DBINARY='"$(BINARY)"' -DFOLDER='"$(FOLDER
 DEFINES += -DHOOK_DLL='"$(FOLDER)\\$(DLL)"' -DLAUNCHER='"$(FOLDER)\\$(LAUNCHER)"' -DUPDATER='"$(UPDATER)"'
 DEFINES += -DRELAY_LIST='"$(RELAY_LIST)"' -DTAG='"$(TAG)"'
 DEFINES += -DLOBBY_LIST='"$(LOBBY_LIST)"'
+DEFINES += -D__GXX_TYPEINFO_EQUALITY_INLINE=1
+DEFINES += -DZYDIS_STATIC_BUILD
+DEFINES += -DRAPIDJSON_HAS_STDSTRING=1
 INCLUDES = -I$(CURDIR) -I$(CURDIR)/targets -I$(CURDIR)/netplay -I$(CURDIR)/lib -I$(CURDIR)/tests -I$(CURDIR)/3rdparty -I$(CURDIR)/sequences -I$(CURDIR)/pluginsdk/include
 INCLUDES += -I$(CURDIR)/3rdparty/cereal/include -I$(CURDIR)/3rdparty/gtest/include -I$(CURDIR)/3rdparty/minhook/include
 INCLUDES += -I$(CURDIR)/3rdparty/d3dhook -I$(CURDIR)/3rdparty/framedisplay -I$(CURDIR)/3rdparty/imgui -I$(CURDIR)/3rdparty/imgui/backends
-CC_FLAGS = -m32 $(INCLUDES) $(DEFINES) -fpermissive
+INCLUDES += -I$(CURDIR)/external/safetyhook
+CC_FLAGS = -m32 $(INCLUDES) $(DEFINES) -fpermissive -Wno-class-memaccess
 #	https://gcc.gnu.org/onlinedocs/gcc/x86-Options.html
 # 	Intel Celeron 440 is listed as minimum CPU for melty on steam
 CC_FLAGS += -mmmx -msse -msse2 -msse3 -mssse3
 
 # Linker flags
 LD_FLAGS = -m32 -static -lws2_32 -lpsapi -lwinpthread -lwinmm -lole32 -ldinput -lwininet -ldwmapi -lgdi32
+LD_FLAGS += -Wl,--allow-multiple-definition
 
 # Build options
 # DEFINES += -DDISABLE_LOGGING
@@ -180,29 +187,29 @@ endif
 
 $(BINARY): $(addprefix $(BUILD_PREFIX)/,$(MAIN_OBJECTS)) res/icon.res
 	rm -f $(filter-out $(BINARY),$(wildcard $(NAME)*.exe))
-	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ $(LD_FLAGS)
+	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2b -fconcepts $^ $(LD_FLAGS)
 	@echo
 	$(STRIP) $@
 	$(CHMOD_X)
 	@echo
 
 $(PLUGIN_DLL_REPLAY): $(PLUGIN_OBJECTS_REPLAY)
-	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
+	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2b -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
 	@echo
 	$(STRIP) $@
 	@echo
 
 $(PLUGIN_DLL_HUD): $(PLUGIN_OBJECTS_HUD)
-	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
+	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2b -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
 	@echo
 	$(STRIP) $@
 	@echo
 
-$(PLUGIN_DLL_ONCE_AGAIN): $(PLUGIN_OBJECTS_ONCE_AGAIN)
-	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
-	@echo
-	$(STRIP) $@
-	@echo
+# $(PLUGIN_DLL_ONCE_AGAIN): $(PLUGIN_OBJECTS_ONCE_AGAIN)  # Disabled for now
+# 	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2b -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
+# 	@echo
+# 	$(STRIP) $@
+# 	@echo
 
 ifeq ($(BUILD_TYPE),build_debug)
 $(FOLDER)/$(DLL_DBG): $(FOLDER)/$(DLL)
@@ -212,7 +219,7 @@ $(FOLDER)/$(DLL_DBG): $(FOLDER)/$(DLL)
 endif
 
 $(FOLDER)/$(DLL): $(addprefix $(BUILD_PREFIX)/,$(DLL_OBJECTS)) res/rollback.o targets/CallDraw.s $(PLUGIN_DLLS) | $(FOLDER)
-	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2a -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
+	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2b -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
 	@echo
 	$(STRIP) $@
 	$(GRANT)
@@ -226,7 +233,7 @@ $(FOLDER)/$(LAUNCHER): tools/Launcher.cpp | $(FOLDER)
 	@echo
 
 $(FOLDER)/$(UPDATER): tools/Updater.cpp lib/StringUtils.cpp | $(FOLDER)
-	$(CXX) -o $@ $^ -m32 -s -Os -O2 -std=c++2a -fconcepts -I$(CURDIR)/lib -Wall -static -lpsapi
+	$(CXX) -o $@ $^ -m32 -s -Os -O2 -std=c++2b -fconcepts -I$(CURDIR)/lib -Wall -static -lpsapi
 	@echo
 	$(STRIP) $@
 	$(CHMOD_X)
@@ -275,7 +282,7 @@ DEBUGGER_LIB_OBJECTS = \
 	$(addprefix $(LOGGING_PREFIX)/,$(filter-out lib/Version.o lib/LoggerLogVersion.o lib/ConsoleUi.o,$(LIB_OBJECTS)))
 
 tools/$(DEBUGGER): tools/Debugger.cpp $(DEBUGGER_LIB_OBJECTS)
-	$(CXX) -o $@ $(CC_FLAGS) $(LOGGING_FLAGS) -Wall -std=c++2a -fconcepts $^ $(LD_FLAGS) \
+	$(CXX) -o $@ $(CC_FLAGS) $(LOGGING_FLAGS) -Wall -std=c++2b -fconcepts $^ $(LD_FLAGS) \
 	-I$(CURDIR)/3rdparty/distorm3/include -L$(CURDIR)/3rdparty/distorm3 -ldistorm3
 	@echo
 	$(STRIP) $@
@@ -287,7 +294,7 @@ GENERATOR_LIB_OBJECTS = \
 	$(addprefix $(LOGGING_PREFIX)/,$(filter-out lib/Version.o lib/LoggerLogVersion.o lib/ConsoleUi.o,$(LIB_OBJECTS)))
 
 tools/$(GENERATOR): tools/Generator.cpp $(GENERATOR_LIB_OBJECTS)
-	$(CXX) -o $@ $(CC_FLAGS) $(LOGGING_FLAGS) -Wall -std=c++2a -fconcepts $^ $(LD_FLAGS)
+	$(CXX) -o $@ $(CC_FLAGS) $(LOGGING_FLAGS) -Wall -std=c++2b -fconcepts $^ $(LD_FLAGS)
 	@echo
 	$(STRIP) $@
 	$(CHMOD_X)
@@ -319,7 +326,7 @@ FRAMEDISPLAY_LD_FLAGS += -mwindows -static -lmingw32 -lpng -lz -lglfw -lopengl32
 	$(MAKE) --directory=3rdparty/AntTweakBar/src
 
 $(PALETTES): $(PALETTES_SRC) $(FRAMEDISPLAY_OBJECTS) res/palettes.res 3rdparty/AntTweakBar/lib/libAntTweakBar.a
-	$(CXX) $(FRAMEDISPLAY_CC_FLAGS) -o $@ $(FRAMEDISPLAY_INCLUDES) -Wall -std=c++2a -fconcepts -C $^ $(FRAMEDISPLAY_LD_FLAGS)
+	$(CXX) $(FRAMEDISPLAY_CC_FLAGS) -o $@ $(FRAMEDISPLAY_INCLUDES) -Wall -std=c++2b -fconcepts -C $^ $(FRAMEDISPLAY_LD_FLAGS)
 	@echo
 	$(STRIP) $@
 	$(CHMOD_X)
@@ -504,12 +511,15 @@ build_debug_$(BRANCH):
 	rsync -a -f"- .git/" -f"- build_*/" -f"+ */" -f"- *" --exclude=".*" . $@
 
 build_debug_$(BRANCH)/%.o: %.cpp | build_debug_$(BRANCH)
-	$(CXX) $(CC_FLAGS) $(DEBUG_FLAGS) -Wall -Wempty-body -std=c++2a -fconcepts -o $@ -c $<
+	@mkdir -p $(dir $@)
+	$(CXX) $(CC_FLAGS) $(DEBUG_FLAGS) -Wall -Wempty-body -std=c++2b -fconcepts -o $@ -c $<
 
 build_debug_$(BRANCH)/%.o: %.cc | build_debug_$(BRANCH)
+	@mkdir -p $(dir $@)
 	$(CXX) $(CC_FLAGS) $(DEBUG_FLAGS) -o $@ -c $<
 
 build_debug_$(BRANCH)/%.o: %.c | build_debug_$(BRANCH)
+	@mkdir -p $(dir $@)
 	$(GCC) $(filter-out -fno-rtti,$(CC_FLAGS) $(DEBUG_FLAGS)) -Wno-attributes -o $@ -c $<
 
 
@@ -517,12 +527,15 @@ build_logging_$(BRANCH):
 	rsync -a -f"- .git/" -f"- build_*/" -f"+ */" -f"- *" --exclude=".*" . $@
 
 build_logging_$(BRANCH)/%.o: %.cpp | build_logging_$(BRANCH)
-	$(CXX) $(CC_FLAGS) $(LOGGING_FLAGS) -Wall -Wempty-body -std=c++2a -fconcepts -o $@ -c $<
+	@mkdir -p $(dir $@)
+	$(CXX) $(CC_FLAGS) $(LOGGING_FLAGS) -Wall -Wempty-body -std=c++2b -fconcepts -o $@ -c $<
 
 build_logging_$(BRANCH)/%.o: %.cc | build_logging_$(BRANCH)
+	@mkdir -p $(dir $@)
 	$(CXX) $(CC_FLAGS) $(LOGGING_FLAGS) -o $@ -c $<
 
 build_logging_$(BRANCH)/%.o: %.c | build_logging_$(BRANCH)
+	@mkdir -p $(dir $@)
 	$(GCC) $(filter-out -fno-rtti,$(CC_FLAGS) $(LOGGING_FLAGS)) -Wno-attributes -o $@ -c $<
 
 
@@ -530,11 +543,14 @@ build_release_$(BRANCH):
 	rsync -a -f"- .git/" -f"- build_*/" -f"+ */" -f"- *" --exclude=".*" . $@
 
 build_release_$(BRANCH)/%.o: %.cpp | build_release_$(BRANCH)
-	$(CXX) $(CC_FLAGS) $(RELEASE_FLAGS) -std=c++2a -fconcepts -o $@ -c $<
+	@mkdir -p $(dir $@)
+	$(CXX) $(CC_FLAGS) $(RELEASE_FLAGS) -std=c++2b -fconcepts -o $@ -c $<
 
 build_release_$(BRANCH)/%.o: %.cc | build_release_$(BRANCH)
+	@mkdir -p $(dir $@)
 	$(CXX) $(CC_FLAGS) $(RELEASE_FLAGS) -o $@ -c $<
 
 build_release_$(BRANCH)/%.o: %.c | build_release_$(BRANCH)
+	@mkdir -p $(dir $@)
 	$(GCC) $(filter-out -fno-rtti,$(CC_FLAGS) $(RELEASE_FLAGS)) -Wno-attributes -o $@ -c $<
 

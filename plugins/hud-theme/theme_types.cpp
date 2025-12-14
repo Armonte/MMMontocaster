@@ -33,6 +33,16 @@ HudTheme make_default_theme() {
     theme.guard.quality_low = 0xFFE60A0Au;
     theme.guard.breaker = 0xFF767676u;
 
+    // Default layout
+    theme.layout.moon_icons.visible = true;
+    theme.layout.moon_icons.pivot = "center";
+    theme.layout.moon_icons.offset = {0, 0};
+    theme.layout.portraits.clear();
+
+    // Default assets
+    theme.assets.gauge.pack = "0003.p";
+    theme.assets.gauge.folder = "/GRP/gauge_AA";
+
     return theme;
 }
 

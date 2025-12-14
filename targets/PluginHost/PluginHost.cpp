@@ -22,6 +22,14 @@ namespace cccaster::plugin {
 namespace fs = std::filesystem;
 namespace {
 
+fs::path make_path(const fs::path::string_type& native_path) {
+    return fs::path(native_path);
+}
+
+std::string utf8_from_native(const fs::path::string_type& native_path) {
+    return fs::path(native_path).string();
+}
+
 bool memory_read_impl(const void* address, void* buffer, size_t size) {
     if (!address || !buffer || size == 0) {
     return false;
@@ -96,13 +104,54 @@ void PluginHost::initialize() {
         return;
     }
 
-    if (!registry_) {
-        registry_ = std::make_unique<PluginRegistry>();
-    }
+    try {
+        if (!registry_) {
+            registry_ = std::make_unique<PluginRegistry>();
+        }
 
-    LOG ( "[PluginHost] Initializing services..." );
-    input_service_.initialize();
-    scheduler_service_.initialize();
+        LOG ( "[PluginHost] Initializing services..." );
+        input_service_.initialize();
+        scheduler_service_.initialize();
+        detour_service_.initialize();
+        
+        // Initialize plugin service and set registry
+        plugin_service_.set_registry(registry_.get());
+
+        // Initialize file service (mod system) BEFORE plugins load
+        file_service_.initialize();
+
+    // Initialize built-in mod manager plugin (after FileService, before external plugins)
+    LOG ( "[PluginHost] Initializing built-in ModManagerPlugin..." );
+    PluginHostAPI builtin_api;
+    build_builtin_host_api(builtin_api);
+    PluginResult plugin_result = mod_manager_plugin_.initialize(&builtin_api);
+    if (plugin_result != PLUGIN_RESULT_OK) {
+        LOG ( "[PluginHost] WARNING: ModManagerPlugin failed to initialize (result: %d)", plugin_result );
+    } else {
+        LOG ( "[PluginHost] ModManagerPlugin initialized successfully" );
+        
+        // Register built-in ModManagerPlugin in the registry so it appears in plugin lists
+        PluginInstance builtin_instance{};
+        builtin_instance.manifest.id = "mod-manager";
+        builtin_instance.manifest.name = "Mod Manager";
+        builtin_instance.manifest.version = "1.0.0";
+        builtin_instance.manifest.description = "Built-in mod management plugin";
+        builtin_instance.manifest.api_version = "0.1.0";
+        builtin_instance.manifest.library = "<built-in>"; // Required for valid() check
+        builtin_instance.manifest.entry_symbol = "<built-in>"; // Required for valid() check
+        builtin_instance.manifest.enabled = true;
+        builtin_instance.manifest_path = L"<built-in>";
+        builtin_instance.library_path = L"<built-in>";
+        builtin_instance.module_handle = nullptr; // Built-in, no DLL
+        builtin_instance.last_result = plugin_result;
+        builtin_instance.entry_invoked = true; // Already initialized
+        try {
+            registry_->add_instance(std::move(builtin_instance));
+            LOG ( "[PluginHost] ModManagerPlugin registered in plugin registry" );
+        } catch (const std::exception& ex) {
+            LOG ( "[PluginHost] Exception registering ModManagerPlugin: %s", ex.what() );
+        }
+    }
 
 #ifdef _WIN32
     // ReplayService factory - only works in DLL builds where ReplayService.cpp is linked
@@ -117,18 +166,25 @@ void PluginHost::initialize() {
 
 #ifdef _WIN32
     for (auto& instance : registry_->instances()) {
-        if (!fs::exists(instance.library_path)) {
-            LOG ( "[PluginHost] Skipping plugin '%s': library '%s' not found", instance.manifest.id.c_str(), instance.library_path.string().c_str() );
+        // Skip built-in plugins (they're already initialized)
+        if (instance.manifest.library == "<built-in>" || instance.entry_invoked) {
+            LOG ( "[PluginHost] Skipping built-in plugin '%s' (already initialized)", instance.manifest.id.c_str() );
+            continue;
+        }
+        
+        const auto library_path = make_path(instance.library_path);
+        if (!fs::exists(library_path)) {
+            LOG ( "[PluginHost] Skipping plugin '%s': library '%s' not found", instance.manifest.id.c_str(), utf8_from_native(instance.library_path).c_str() );
             instance.last_result = PLUGIN_RESULT_ERROR;
             continue;
         }
 
-        LOG ( "[PluginHost] Loading plugin '%s' from '%s'", instance.manifest.id.c_str(), instance.library_path.string().c_str() );
+        LOG ( "[PluginHost] Loading plugin '%s' from '%s'", instance.manifest.id.c_str(), utf8_from_native(instance.library_path).c_str() );
 
         // Suppress error dialogs during LoadLibrary
         UINT old_error_mode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
         
-        HMODULE handle = LoadLibraryW(instance.library_path.wstring().c_str());
+        HMODULE handle = LoadLibraryW(instance.library_path.c_str());
         
         // Restore error mode
         SetErrorMode(old_error_mode);
@@ -136,7 +192,7 @@ void PluginHost::initialize() {
         if (handle == nullptr) {
             DWORD error = GetLastError();
             LOG ( "[PluginHost] Failed to load '%s': error %lu (0x%08lX)", 
-                  instance.library_path.string().c_str(), error, error );
+                  utf8_from_native(instance.library_path).c_str(), error, error );
             instance.last_result = PLUGIN_RESULT_ERROR;
             continue;
         }
@@ -153,6 +209,7 @@ void PluginHost::initialize() {
                   instance.manifest.id.c_str(), ex.what() );
             instance.last_result = PLUGIN_RESULT_ERROR;
             hook_service_.unregister_all(instance.hook_context);
+            detour_service_.remove_all_for_plugin(instance.hook_context);
             input_service_.unregister_all(instance.hook_context);
             FreeLibrary(handle);
             instance.module_handle = nullptr;
@@ -161,6 +218,7 @@ void PluginHost::initialize() {
                   instance.manifest.id.c_str() );
             instance.last_result = PLUGIN_RESULT_ERROR;
             hook_service_.unregister_all(instance.hook_context);
+            detour_service_.remove_all_for_plugin(instance.hook_context);
             input_service_.unregister_all(instance.hook_context);
             FreeLibrary(handle);
             instance.module_handle = nullptr;
@@ -168,7 +226,15 @@ void PluginHost::initialize() {
     }
 #endif
 
-    initialized_ = true;
+        initialized_ = true;
+        LOG ( "[PluginHost] Initialization complete, initialized_ = true" );
+    } catch (const std::exception& ex) {
+        LOG ( "[PluginHost] Exception during initialization: %s", ex.what() );
+        initialized_ = false;
+    } catch (...) {
+        LOG ( "[PluginHost] Unknown exception during initialization" );
+        initialized_ = false;
+    }
 }
 
 void PluginHost::shutdown() {
@@ -176,10 +242,17 @@ void PluginHost::shutdown() {
         return;
     }
 
+    // Shutdown built-in mod manager plugin
+    mod_manager_plugin_.shutdown();
+
+    // Shutdown file service (uninstalls file hook)
+    file_service_.shutdown();
+
 #ifdef _WIN32
     if (registry_) {
         for (auto& instance : registry_->instances()) {
             hook_service_.unregister_all(instance.hook_context);
+            detour_service_.remove_all_for_plugin(instance.hook_context);
             input_service_.unregister_all(instance.hook_context);
 
             if (instance.module_handle != nullptr) {
@@ -198,6 +271,7 @@ void PluginHost::shutdown() {
 
     input_service_.shutdown();
     scheduler_service_.shutdown();
+    detour_service_.shutdown();
 
 #ifdef _WIN32
     destroy_replay_service(replay_service_opaque_);
@@ -208,6 +282,14 @@ void PluginHost::shutdown() {
 }
 
 bool PluginHost::is_initialized() const {
+    // Lazy initialization: if not initialized yet, try to initialize now
+    // This handles the case where the callback() hasn't been called yet
+    if (!initialized_) {
+        LOG ( "[PluginHost] is_initialized() called but not initialized, attempting lazy initialization" );
+        // Remove const to allow initialization
+        // This is safe because we're checking initialized_ first
+        const_cast<PluginHost*>(this)->initialize();
+    }
     return initialized_;
 }
 
@@ -287,14 +369,20 @@ void PluginHost::discover_plugins() {
                       manifest.id.c_str(), manifest.valid(), manifest.enabled );
                 continue;
             }
+            
+            // Skip once-again plugin (disabled for now)
+            if (manifest.id == "once-again") {
+                LOG ( "[PluginHost] Skipping once-again plugin (disabled for now)" );
+                continue;
+            }
 
             LOG ( "[PluginHost] Creating plugin instance for: %s", manifest.id.c_str() );
             PluginInstance instance{};
             instance.manifest = std::move(manifest);
-            instance.manifest_path = manifest_path;
-            instance.library_path = dir_entry.path() / instance.manifest.library;
+            instance.manifest_path = manifest_path.native();
+            instance.library_path = (dir_entry.path() / instance.manifest.library).native();
             instance.hook_context.id = instance.manifest.id;
-            LOG ( "[PluginHost] Plugin instance created, library_path=%s", instance.library_path.string().c_str() );
+            LOG ( "[PluginHost] Plugin instance created, library_path=%s", fs::path(instance.library_path).string().c_str() );
             try {
                 registry_->add_instance(std::move(instance));
                 LOG ( "[PluginHost] Plugin instance added to registry" );
@@ -314,6 +402,27 @@ void PluginHost::discover_plugins() {
     LOG ( "[PluginHost] Plugin discovery complete, processed %d directories", dir_count );
 }
 
+void PluginHost::build_builtin_host_api(PluginHostAPI& api) {
+    api.api_version = CCCASTER_PLUGIN_API_VERSION;
+    api.logger = logger_service_.api();
+    api.config = config_service_.api();
+    api.hooks = hook_service_.api();
+    api.diagnostics = diagnostics_service_.api();
+    api.memory = &memory_api_;
+    api.ui = ui_service_.api();
+    api.scheduler = scheduler_service_.api();
+    api.input = input_service_.api();
+    api.menu = menu_service_.api();
+    api.detour = detour_service_.api();
+    api.file = file_service_.api();
+    api.plugin = plugin_service_.api();
+#ifdef _WIN32
+    api.replay = get_replay_api();
+#else
+    api.replay = nullptr;
+#endif
+}
+
 void PluginHost::build_host_api(PluginInstance& instance) {
     instance.host_api.api_version = CCCASTER_PLUGIN_API_VERSION;
     instance.host_api.logger = logger_service_.api();
@@ -325,6 +434,9 @@ void PluginHost::build_host_api(PluginInstance& instance) {
     instance.host_api.scheduler = scheduler_service_.api();
     instance.host_api.input = input_service_.api();
     instance.host_api.menu = menu_service_.api();
+    instance.host_api.detour = detour_service_.api();
+    instance.host_api.file = file_service_.api();
+    instance.host_api.plugin = plugin_service_.api();
 #ifdef _WIN32
     instance.host_api.replay = get_replay_api();
 #else
@@ -371,6 +483,7 @@ void PluginHost::invoke_plugin_entry(PluginInstance& instance) {
 
     if (result != PLUGIN_RESULT_OK) {
         hook_service_.unregister_all(instance.hook_context);
+        detour_service_.remove_all_for_plugin(instance.hook_context);
         input_service_.unregister_all(instance.hook_context);
         LOG ( "[PluginHost] Plugin '%s' returned error code %d", instance.manifest.id.c_str(), static_cast<int>(result) );
     }

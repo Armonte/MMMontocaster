@@ -268,6 +268,13 @@ int main ( int argc, char *argv[] )
             "                         with 1.5 second held start button."
         },
 
+        {
+            Options::DisablePaletteSync, 0, "", "disable-palette-sync", Arg::None,
+            "  --disable-palette-sync\n"
+            "                         Disable custom palette syncing over network.\n"
+            "                         For security or compatibility reasons."
+        },
+
 #ifndef RELEASE
         { Options::Unknown,   0,  "",       "", Arg::None,        "Debug options:" },
         { Options::Tests,     0,  "",  "tests", Arg::None,        "  --tests              Run unit tests and exit" },

@@ -4,10 +4,12 @@
 #include "theme_loader.hpp"
 
 #include "../../pluginsdk/include/cccaster/api.h"
+#include "../../pluginsdk/include/cccaster/file.h"
 
 #include <array>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -37,7 +39,20 @@ public:
             plugin_directory_ = fs::current_path();
         }
 
-        theme_path_ = plugin_directory_ / "hud_theme.json";
+        // First, check if there's an active HUD theme from the mod system
+        theme_path_ = resolve_mod_theme_path();
+
+        // If no mod theme, fall back to plugin directory
+        if (theme_path_.empty()) {
+            theme_path_ = plugin_directory_ / "hud_theme.json";
+            log_info("No mod HUD theme active, using plugin default.");
+        } else {
+            using_mod_theme_ = true;
+            char msg[512];
+            std::snprintf(msg, sizeof(msg), "Using HUD theme from mod: %s", theme_path_.string().c_str());
+            log_info(msg);
+        }
+
         memory_accessor_ = std::make_unique<MemoryAccessor>(host_);
 
         // Initialize guard color detour
@@ -138,6 +153,20 @@ private:
 #endif
     }
 
+    // Check the mod system for an active HUD theme
+    fs::path resolve_mod_theme_path() const {
+        if (!host_ || !host_->file) {
+            return {};
+        }
+
+        char theme_path_buf[260] = {};
+        if (host_->file->get_active_hud_theme_path(theme_path_buf, sizeof(theme_path_buf))) {
+            return fs::path(theme_path_buf);
+        }
+
+        return {};
+    }
+
     void refresh_theme_timestamp() {
         std::error_code ec;
         theme_timestamp_initialized_ = false;
@@ -207,6 +236,44 @@ private:
             return;
         }
         last_theme_check_ = now;
+
+        // Check if mod theme path has changed
+        fs::path current_mod_theme = resolve_mod_theme_path();
+        if (using_mod_theme_) {
+            // We were using a mod theme - check if it's still active
+            if (current_mod_theme.empty()) {
+                // Mod theme was disabled, switch to plugin default
+                log_info("Mod HUD theme disabled, reverting to plugin default.");
+                using_mod_theme_ = false;
+                theme_path_ = plugin_directory_ / "hud_theme.json";
+                theme_timestamp_initialized_ = false;
+                load_theme(true);
+                return;
+            } else if (current_mod_theme != theme_path_) {
+                // Mod theme changed to a different mod
+                char msg[512];
+                std::snprintf(msg, sizeof(msg), "Switching to different mod HUD theme: %s",
+                             current_mod_theme.string().c_str());
+                log_info(msg);
+                theme_path_ = current_mod_theme;
+                theme_timestamp_initialized_ = false;
+                load_theme(true);
+                return;
+            }
+        } else {
+            // We were using plugin default - check if a mod theme became active
+            if (!current_mod_theme.empty()) {
+                char msg[512];
+                std::snprintf(msg, sizeof(msg), "Mod HUD theme activated: %s",
+                             current_mod_theme.string().c_str());
+                log_info(msg);
+                using_mod_theme_ = true;
+                theme_path_ = current_mod_theme;
+                theme_timestamp_initialized_ = false;
+                load_theme(true);
+                return;
+            }
+        }
 
         if (theme_path_.empty()) {
             return;
@@ -333,6 +400,7 @@ private:
 
     PluginCallbackHandle frame_handle_{};
     bool theme_applied_ = false;
+    bool using_mod_theme_ = false;  // True if theme loaded from mod system
     std::chrono::steady_clock::time_point last_theme_check_ = std::chrono::steady_clock::now();
 };
 

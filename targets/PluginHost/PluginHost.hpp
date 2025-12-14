@@ -17,6 +17,10 @@
 #include "Services/SchedulerService.hpp"
 #include "Services/InputService.hpp"
 #include "Services/MenuService.hpp"
+#include "Services/DetourService.hpp"
+#include "Services/PluginService.hpp"
+#include "FileService.hpp"
+#include "../ModManager/ModManagerPlugin.hpp"
 #ifdef _WIN32
 // ReplayService factory functions - provided by ReplayServiceFactory.cpp (DLL) or ReplayServiceFactoryStub.cpp (main)
 namespace cccaster::plugin {
@@ -37,10 +41,21 @@ public:
     void initialize();
     void shutdown();
 
-    bool is_initialized() const;
+    bool is_initialized() const;  // May trigger lazy initialization
     const std::filesystem::path& plugin_root() const;
 
     void poll_frame_services();
+    
+    // Access to built-in plugins
+    ModManagerPlugin& mod_manager_plugin() { return mod_manager_plugin_; }
+    const ModManagerPlugin& mod_manager_plugin() const { return mod_manager_plugin_; }
+    
+    // Access to services
+    FileService& file_service() { return file_service_; }
+    const FileService& file_service() const { return file_service_; }
+    
+    // Access to plugin service API
+    const PluginAPI* plugin_api() const { return plugin_service_.api(); }
 
 private:
     PluginHost();
@@ -51,6 +66,7 @@ private:
 
     void discover_plugins();
     void build_host_api(PluginInstance& instance);
+    void build_builtin_host_api(PluginHostAPI& api);
     void invoke_plugin_entry(PluginInstance& instance);
 
     bool initialized_;
@@ -66,6 +82,10 @@ private:
     SchedulerService scheduler_service_;
     InputService input_service_;
     MenuService menu_service_;
+    DetourService detour_service_;
+    PluginService plugin_service_;
+    FileService file_service_;
+    ModManagerPlugin mod_manager_plugin_;
 #ifdef _WIN32
     // ReplayService only available when linking against hook.dll (DLL context)
     // Use void* to avoid requiring complete type in header

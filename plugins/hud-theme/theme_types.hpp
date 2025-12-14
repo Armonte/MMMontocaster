@@ -1,7 +1,9 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace hud_theme {
 
@@ -34,11 +36,37 @@ struct GuardColors {
     std::uint32_t breaker = 0xFF767676u;
 };
 
+struct MoonIconsLayout {
+    bool visible = true;
+    std::string pivot = "center";
+    std::array<int, 2> offset = {0, 0};
+};
+
+struct PortraitLayout {
+    // TODO: Add portrait-specific layout fields when needed
+};
+
+struct Layout {
+    MoonIconsLayout moon_icons{};
+    std::vector<PortraitLayout> portraits{};
+};
+
+struct GaugeAsset {
+    std::string pack;
+    std::string folder;
+};
+
+struct Assets {
+    GaugeAsset gauge{};
+};
+
 struct HudTheme {
     int schema_version = 1;
     ThemeMetadata metadata{};
     MeterColors meter{};
     GuardColors guard{};
+    Layout layout{};
+    Assets assets{};
 };
 
 HudTheme make_default_theme();

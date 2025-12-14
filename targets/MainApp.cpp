@@ -588,7 +588,7 @@ struct MainApp
     void checkDelayAndContinue()
     {
         const int delay = computeDelay ( this->pingStats.latency.getMean() );
-        const int maxDelay = ui.getConfig().getInteger ( "maxRealDelay" );
+        const int maxDelay = ui.getConfig().hasInteger ( "maxRealDelay" ) ? ui.getConfig().getInteger ( "maxRealDelay" ) : 254;
 
         if ( delay > maxDelay )
         {
@@ -1134,6 +1134,23 @@ struct MainApp
                     gotConfirmConfig();
                     return;
 
+                case MsgType::PaletteSync:
+                    // Forward palette sync from DLL to network
+                    if ( !options[Options::DisablePaletteSync] && ctrlSocket.get() )
+                    {
+                        PaletteSync sync = msg->getAs<PaletteSync>();
+                        if ( sync.isValid() )
+                        {
+                            LOG ( "Forwarding PaletteSync to network: %s", sync.str().c_str() );
+                            ctrlSocket->send ( sync );
+                        }
+                        else
+                        {
+                            LOG ( "Invalid PaletteSync from DLL - not forwarding" );
+                        }
+                    }
+                    return;
+
                 case MsgType::ErrorMessage:
                     stop ( lastError = msg->getAs<ErrorMessage>().error );
                     return;
@@ -1225,6 +1242,23 @@ struct MainApp
                     ctrlSocket->send ( msg );
                 return;
 
+            case MsgType::PaletteSync:
+                // Forward palette sync from network to DLL
+                if ( !options[Options::DisablePaletteSync] )
+                {
+                    PaletteSync sync = msg->getAs<PaletteSync>();
+                    if ( sync.isValid() )
+                    {
+                        LOG ( "Forwarding PaletteSync from network to DLL: %s", sync.str().c_str() );
+                        procMan.ipcSend ( sync );
+                    }
+                    else
+                    {
+                        LOG ( "Invalid PaletteSync from network - rejecting for security" );
+                    }
+                }
+                return;
+
             case MsgType::ChangeConfig:
                 if ( msg->getAs<ChangeConfig>().value == ChangeConfig::Delay )
                     delayChanged = true;
@@ -1284,7 +1318,7 @@ struct MainApp
             }
 
             // Open the game and wait for callback to ipcConnected
-            procMan.openGame ( ui.getConfig().getInteger ( "highCpuPriority" ),
+            procMan.openGame ( ui.getConfig().hasInteger ( "highCpuPriority" ) ? ui.getConfig().getInteger ( "highCpuPriority" ) : 1,
                                ( clientMode.isTraining() || clientMode.isReplay() ) && hasFramestep );
         }
         else
@@ -1339,13 +1373,17 @@ struct MainApp
                           format ( "%u", uint32_t ( 60 * ui.getConfig().getDouble ( "heldStartDuration" ) ) ) );
         }
 
-        if ( ui.getConfig().getInteger ( "autoReplaySave" ) > 0 )
+        if ( ui.getConfig().hasInteger ( "autoReplaySave" ) && ui.getConfig().getInteger ( "autoReplaySave" ) > 0 )
         {
             options.set ( Options::AutoReplaySave, 1 );
         }
-        if ( ui.getConfig().getInteger ( "frameLimiter" ) > 0 )
+        if ( ui.getConfig().hasInteger ( "frameLimiter" ) && ui.getConfig().getInteger ( "frameLimiter" ) > 0 )
         {
             options.set ( Options::FrameLimiter, 1 );
+        }
+        if ( ui.getConfig().hasInteger ( "disablePaletteSync" ) && ui.getConfig().getInteger ( "disablePaletteSync" ) > 0 )
+        {
+            options.set ( Options::DisablePaletteSync, 1 );
         }
         if ( ! ProcessManager::getIsWindowed() )
         {

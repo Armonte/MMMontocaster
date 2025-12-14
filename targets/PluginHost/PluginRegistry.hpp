@@ -12,8 +12,8 @@ namespace cccaster::plugin {
 
 struct PluginInstance {
     PluginManifest manifest;
-    std::filesystem::path manifest_path;
-    std::filesystem::path library_path;
+    std::filesystem::path::string_type manifest_path;
+    std::filesystem::path::string_type library_path;
     void* module_handle = nullptr;
     PluginHostAPI host_api{};
     PluginRegistration registration{};

@@ -7,6 +7,9 @@
 #include "CharacterSelect.hpp"
 #include "StringUtils.hpp"
 #include "NetplayStates.hpp"
+#include "PluginHost/PluginHost.hpp"
+#include "cccaster/file.h"
+#include "cccaster/plugin.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -1356,7 +1359,7 @@ void MainUi::settings()
                 break;
             case 12:
                 _ui->pushInFront ( new ConsoleUi::Menu ( "Experimental Options",
-                                                         { "Disable Caster Frame Limiter" }, "Cancel" ),
+                                                         { "Disable Caster Frame Limiter", "Disable Palette Sync" }, "Cancel" ),
                                    { 0, 0 }, true ); // Don't expand but DO clear top
                 while ( true ) {
                     _ui->popUntilUserInput();
@@ -1372,6 +1375,21 @@ void MainUi::settings()
                         if ( _ui->top()->resultInt >= 0 && _ui->top()->resultInt <= 1 )
                             {
                                 _config.setInteger ( "frameLimiter", ( _ui->top()->resultInt + 1 ) % 2 );
+                                saveConfig();
+                            }
+
+                        _ui->pop();
+                    } else if ( setting == 1 ) {
+                        _ui->pushInFront ( new ConsoleUi::Menu ( "Disable Palette Sync?",
+                                                                 { "Yes", "No" }, "Cancel" ),
+                                           { 0, 0 }, true ); // Don't expand but DO clear top
+
+                        _ui->top<ConsoleUi::Menu>()->setPosition ( ( _config.getInteger ( "disablePaletteSync" ) + 1 ) % 2 );
+                        _ui->popUntilUserInput();
+
+                        if ( _ui->top()->resultInt >= 0 && _ui->top()->resultInt <= 1 )
+                            {
+                                _config.setInteger ( "disablePaletteSync", ( _ui->top()->resultInt + 1 ) % 2 );
                                 saveConfig();
                             }
 
@@ -1644,6 +1662,8 @@ void MainUi::main ( RunFuncPtr run )
             "Settings",
             "Update",
             "Results",
+            "Mods",
+            "Plugins",
         };
 
         _ui->pushRight ( new ConsoleUi::Menu ( uiTitle, options, "Quit" ) );
@@ -1735,6 +1755,14 @@ void MainUi::main ( RunFuncPtr run )
 
             case 8:
                 results();
+                break;
+
+            case 9:
+                mods();
+                break;
+
+            case 10:
+                plugins();
                 break;
 
             default:
@@ -2305,6 +2333,554 @@ void MainUi::hostReady() {
         //LOCK( host );
         //_mmm->hostCondVar.signal();
         _mmm->sendHostReady();
+    }
+}
+
+void MainUi::mods()
+{
+    const vector<string> options =
+    {
+        "List Mods",
+        "Enable Mod",
+        "Disable Mod",
+        "Set Mod Priority",
+        "Mod Info",
+        "Announcer Voice Set",
+    };
+
+    _ui->pushRight ( new ConsoleUi::Menu ( "Mods", options, "Back" ) );
+
+    for ( ;; )
+    {
+        int selection = _ui->popUntilUserInput()->resultInt;
+
+        if ( selection < 0 || selection >= ( int ) options.size() )
+        {
+            _ui->pop();
+            break;
+        }
+
+        _ui->clearBelow();
+
+        switch ( selection )
+        {
+            case 0:
+                listMods();
+                break;
+
+            case 1:
+                enableMod();
+                break;
+
+            case 2:
+                disableMod();
+                break;
+
+            case 3:
+                setModPriority();
+                break;
+
+            case 4:
+                showModInfo();
+                break;
+
+            case 5:
+                selectAnnouncerVoiceSet();
+                break;
+
+            default:
+                break;
+        }
+
+        if ( selection != 0 ) // Already handled for case 0
+            _ui->popNonUserInput();
+    }
+}
+
+void MainUi::plugins()
+{
+    const vector<string> options =
+    {
+        "List Plugins",
+        "Plugin Info",
+    };
+
+    _ui->pushRight ( new ConsoleUi::Menu ( "Plugins", options, "Back" ) );
+
+    for ( ;; )
+    {
+        int selection = _ui->popUntilUserInput()->resultInt;
+
+        if ( selection < 0 || selection >= ( int ) options.size() )
+        {
+            _ui->pop();
+            break;
+        }
+
+        _ui->clearBelow();
+
+        switch ( selection )
+        {
+            case 0:
+                listPlugins();
+                break;
+
+            case 1:
+                showPluginInfo();
+                break;
+
+            default:
+                break;
+        }
+
+        if ( selection != 0 ) // Already handled for case 0
+            _ui->popNonUserInput();
+    }
+}
+
+void MainUi::listMods()
+{
+    try
+    {
+        LOG ( "listMods() called" );
+        auto& plugin_host = cccaster::plugin::PluginHost::instance();
+        
+        if ( !plugin_host.is_initialized() )
+        {
+            LOG ( "Plugin system not initialized" );
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Plugin system not initialized" ), { 1, 0 } );
+            return;
+        }
+        
+        auto& mod_plugin = plugin_host.mod_manager_plugin();
+
+        if ( !mod_plugin.is_initialized() )
+        {
+            LOG ( "Mod system not initialized" );
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
+            return;
+        }
+
+        LOG ( "Getting mod list..." );
+        auto mods = mod_plugin.get_mod_list();
+        LOG ( "Got %zu mod(s)", mods.size() );
+
+        if ( mods.empty() )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "No mods found" ), { 1, 0 } );
+            return;
+        }
+
+        string text = "Mods:\n\n";
+        for ( const auto& mod : mods )
+        {
+            text += format ( "%-20s v%-10s %-8s Priority: %3d\n",
+                           mod.name, mod.version,
+                           mod.enabled ? "ENABLED" : "DISABLED",
+                           mod.priority );
+        }
+
+        _ui->pushBelow ( new ConsoleUi::TextBox ( text ), { 1, 0 } );
+        _ui->popUntilUserInput();
+    }
+    catch ( const exception& e )
+    {
+        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error listing mods: %s", e.what() ) ), { 1, 0 } );
+        _ui->popUntilUserInput();
+    }
+    catch ( ... )
+    {
+        _ui->pushBelow ( new ConsoleUi::TextBox ( "Unknown error listing mods" ), { 1, 0 } );
+        _ui->popUntilUserInput();
+    }
+}
+
+void MainUi::enableMod()
+{
+    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter mod name:" ), { 1, 0 } );
+    _ui->popUntilUserInput();
+
+    string mod_name = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
+    _ui->pop();
+
+    if ( mod_name.empty() )
+        return;
+
+    try
+    {
+        auto& plugin_host = cccaster::plugin::PluginHost::instance();
+        auto& mod_plugin = plugin_host.mod_manager_plugin();
+
+        if ( !mod_plugin.is_initialized() )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
+            return;
+        }
+
+        if ( mod_plugin.set_mod_enabled ( mod_name.c_str(), true ) )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Mod '%s' enabled", mod_name.c_str() ) ), { 1, 0 } );
+        }
+        else
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Failed to enable mod '%s' (mod not found?)", mod_name.c_str() ) ), { 1, 0 } );
+        }
+    }
+    catch ( const exception& e )
+    {
+        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
+    }
+}
+
+void MainUi::disableMod()
+{
+    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter mod name:" ), { 1, 0 } );
+    _ui->popUntilUserInput();
+
+    string mod_name = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
+    _ui->pop();
+
+    if ( mod_name.empty() )
+        return;
+
+    try
+    {
+        auto& plugin_host = cccaster::plugin::PluginHost::instance();
+        auto& mod_plugin = plugin_host.mod_manager_plugin();
+
+        if ( !mod_plugin.is_initialized() )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
+            return;
+        }
+
+        if ( mod_plugin.set_mod_enabled ( mod_name.c_str(), false ) )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Mod '%s' disabled", mod_name.c_str() ) ), { 1, 0 } );
+        }
+        else
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Failed to disable mod '%s' (mod not found?)", mod_name.c_str() ) ), { 1, 0 } );
+        }
+    }
+    catch ( const exception& e )
+    {
+        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
+    }
+}
+
+void MainUi::setModPriority()
+{
+    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter mod name:" ), { 1, 0 } );
+    _ui->popUntilUserInput();
+
+    string mod_name = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
+    _ui->pop();
+
+    if ( mod_name.empty() )
+        return;
+
+    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::Integer, "Enter priority (higher = loaded first):" ), { 1, 0 } );
+    _ui->top<ConsoleUi::Prompt>()->allowNegative = true;
+    _ui->popUntilUserInput();
+
+    int priority = _ui->top<ConsoleUi::Prompt>()->resultInt;
+    _ui->pop();
+
+    try
+    {
+        auto& plugin_host = cccaster::plugin::PluginHost::instance();
+        auto& mod_plugin = plugin_host.mod_manager_plugin();
+
+        if ( !mod_plugin.is_initialized() )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
+            return;
+        }
+
+        if ( mod_plugin.set_mod_priority ( mod_name.c_str(), priority ) )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Mod '%s' priority set to %d", mod_name.c_str(), priority ) ), { 1, 0 } );
+        }
+        else
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Failed to set priority for mod '%s' (mod not found?)", mod_name.c_str() ) ), { 1, 0 } );
+        }
+    }
+    catch ( const exception& e )
+    {
+        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
+    }
+}
+
+void MainUi::showModInfo()
+{
+    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter mod name:" ), { 1, 0 } );
+    _ui->popUntilUserInput();
+
+    string mod_name = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
+    _ui->pop();
+
+    if ( mod_name.empty() )
+        return;
+
+    try
+    {
+        auto& plugin_host = cccaster::plugin::PluginHost::instance();
+        auto& mod_plugin = plugin_host.mod_manager_plugin();
+
+        if ( !mod_plugin.is_initialized() )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
+            return;
+        }
+
+        ::ModInfo info;
+        if ( mod_plugin.get_mod_info ( mod_name.c_str(), &info ) )
+        {
+            string text = format ( "Mod Info: %s\n\n", mod_name.c_str() );
+            text += format ( "Version: %s\n", info.version );
+            text += format ( "Author: %s\n", info.author );
+            text += format ( "Description: %s\n", info.description );
+            text += format ( "Path: %s\n", info.mod_path );
+            text += format ( "Enabled: %s\n", info.enabled ? "Yes" : "No" );
+            text += format ( "Priority: %d\n", info.priority );
+            text += format ( "Load Order: %d\n", info.load_order );
+
+            _ui->pushBelow ( new ConsoleUi::TextBox ( text ), { 1, 0 } );
+        }
+        else
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Mod '%s' not found", mod_name.c_str() ) ), { 1, 0 } );
+        }
+    }
+    catch ( const exception& e )
+    {
+        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
+    }
+}
+
+void MainUi::selectAnnouncerVoiceSet()
+{
+    try
+    {
+        auto& plugin_host = cccaster::plugin::PluginHost::instance();
+        auto& mod_plugin = plugin_host.mod_manager_plugin();
+
+        if ( !mod_plugin.is_initialized() )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
+            return;
+        }
+
+        // Get available voice sets
+        auto voice_sets = mod_plugin.get_available_voice_sets();
+
+        if ( voice_sets.empty() )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "No voice sets found in .\\sound\\voices\\" ), { 1, 0 } );
+            return;
+        }
+
+        // Display available voice sets
+        string text = "Available Voice Sets:\n\n";
+        for ( size_t i = 0; i < voice_sets.size(); ++i )
+        {
+            text += format ( "[%zu] %s\n", i + 1, voice_sets[i].c_str() );
+        }
+        text += "\nEnter voice set name (or number):";
+
+        _ui->pushBelow ( new ConsoleUi::TextBox ( text ), { 1, 0 } );
+
+        // Get current selection
+        string current_set = mod_plugin.get_selected_voice_set();
+        if ( !current_set.empty() )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Current: %s", current_set.c_str() ) ), { 1, 0 } );
+        }
+
+        // Prompt for voice set selection
+        _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter voice set name or number:" ), { 1, 0 } );
+        _ui->popUntilUserInput();
+
+        string input = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
+        _ui->pop();
+
+        if ( input.empty() )
+        {
+            return;
+        }
+
+        // Check if input is a number
+        string selected_set;
+        try
+        {
+            int index = lexical_cast<int> ( input, -1 );
+            if ( index > 0 && index <= ( int ) voice_sets.size() )
+            {
+                selected_set = voice_sets[index - 1];
+            }
+            else
+            {
+                selected_set = input;
+            }
+        }
+        catch ( ... )
+        {
+            selected_set = input;
+        }
+
+        // Set the voice set
+        if ( mod_plugin.set_selected_voice_set ( selected_set.c_str() ) )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Voice set set to: %s", selected_set.c_str() ) ), { 1, 0 } );
+        }
+        else
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Failed to set voice set '%s' (not found?)", selected_set.c_str() ) ), { 1, 0 } );
+        }
+    }
+    catch ( const exception& e )
+    {
+        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
+    }
+}
+
+void MainUi::listPlugins()
+{
+    try
+    {
+        LOG ( "listPlugins() called" );
+        auto& plugin_host = cccaster::plugin::PluginHost::instance();
+
+        if ( !plugin_host.is_initialized() )
+        {
+            LOG ( "Plugin system not initialized" );
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Plugin system not initialized" ), { 1, 0 } );
+            return;
+        }
+
+        // Access PluginAPI through PluginHost
+        const PluginAPI* plugin_api = plugin_host.plugin_api();
+        LOG ( "Got plugin API: %p", plugin_api );
+        
+        if ( !plugin_api || !plugin_api->list_plugins )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Plugin API not available" ), { 1, 0 } );
+            return;
+        }
+
+        PluginInfo plugins[256];
+        size_t count = 0;
+        
+        LOG ( "Calling plugin_api->list_plugins..." );
+        if ( plugin_api->list_plugins ( plugins, 256, &count ) )
+        {
+            LOG ( "list_plugins returned %zu plugins", count );
+            if ( count == 0 )
+            {
+                LOG ( "No plugins found" );
+                _ui->pushBelow ( new ConsoleUi::TextBox ( "No plugins found" ), { 1, 0 } );
+                return;
+            }
+
+            string text = "Plugins:\n\n";
+            for ( size_t i = 0; i < count; ++i )
+            {
+                const auto& plugin = plugins[i];
+                text += format ( "%-20s v%-10s %-8s %-8s\n",
+                               plugin.id,
+                               plugin.version,
+                               plugin.loaded ? "LOADED" : "NOT LOADED",
+                               plugin.enabled ? "ENABLED" : "DISABLED" );
+                if ( !string(plugin.description).empty() )
+                {
+                    text += format ( "  %s\n", plugin.description );
+                }
+            }
+
+            _ui->pushBelow ( new ConsoleUi::TextBox ( text ), { 1, 0 } );
+            _ui->popUntilUserInput();
+        }
+        else
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Failed to list plugins" ), { 1, 0 } );
+            _ui->popUntilUserInput();
+        }
+    }
+    catch ( const exception& e )
+    {
+        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
+        _ui->popUntilUserInput();
+    }
+}
+
+void MainUi::showPluginInfo()
+{
+    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter plugin ID:" ), { 1, 0 } );
+    _ui->popUntilUserInput();
+
+    string plugin_id = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
+    _ui->pop();
+
+    if ( plugin_id.empty() )
+        return;
+
+    try
+    {
+        auto& plugin_host = cccaster::plugin::PluginHost::instance();
+
+        if ( !plugin_host.is_initialized() )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Plugin system not initialized" ), { 1, 0 } );
+            return;
+        }
+
+        // Access PluginAPI through PluginHost
+        const PluginAPI* plugin_api = plugin_host.plugin_api();
+        
+        if ( !plugin_api || !plugin_api->get_plugin_info )
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Plugin API not available" ), { 1, 0 } );
+            return;
+        }
+
+        PluginInfo info;
+        if ( plugin_api->get_plugin_info ( plugin_id.c_str(), &info ) )
+        {
+            string text = format ( "Plugin Info: %s\n\n", plugin_id.c_str() );
+            text += format ( "Name: %s\n", info.name );
+            text += format ( "Version: %s\n", info.version );
+            text += format ( "Description: %s\n", info.description );
+            text += format ( "API Version: %s\n", info.api_version );
+            text += format ( "Enabled: %s\n", info.enabled ? "Yes" : "No" );
+            text += format ( "Loaded: %s\n", info.loaded ? "Yes" : "No" );
+            
+            const char* result_str = "Unknown";
+            switch ( info.last_result )
+            {
+                case PLUGIN_RESULT_OK:
+                    result_str = "OK";
+                    break;
+                case PLUGIN_RESULT_ERROR:
+                    result_str = "Error";
+                    break;
+                case PLUGIN_RESULT_UNSUPPORTED:
+                    result_str = "Unsupported";
+                    break;
+            }
+            text += format ( "Last Result: %s\n", result_str );
+
+            _ui->pushBelow ( new ConsoleUi::TextBox ( text ), { 1, 0 } );
+        }
+        else
+        {
+            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Plugin '%s' not found", plugin_id.c_str() ) ), { 1, 0 } );
+        }
+    }
+    catch ( const exception& e )
+    {
+        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
     }
 }
 

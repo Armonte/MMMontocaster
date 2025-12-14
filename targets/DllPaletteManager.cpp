@@ -13,6 +13,22 @@ static array<unordered_map<uint32_t, PaletteManager>, 2> palMans;
 namespace AsmHacks
 {
 
+// Get palettes for a specific player (for network sync)
+const unordered_map<uint32_t, PaletteManager>& getPalMans(uint32_t player)
+{
+    ASSERT(player == 1 || player == 2);
+    return palMans[player - 1];
+}
+
+// Set palettes for a specific player (for network sync)
+void setPalMans(uint32_t player, const map<uint32_t, PaletteManager>& palettes)
+{
+    ASSERT(player == 1 || player == 2);
+    palMans[player - 1].clear();
+    for (const auto& kv : palettes)
+        palMans[player - 1][kv.first] = kv.second;
+}
+
 void colorLoadCallback ( uint32_t player, uint32_t chara, uint32_t *allPaletteData )
 {
     ASSERT ( player == 1 || player == 2 );

@@ -109,6 +109,78 @@ void apply_guard_entry(const rapidjson::Value& parent,
     }
 }
 
+void apply_moon_icons_layout(const rapidjson::Value& parent,
+                             MoonIconsLayout& target,
+                             ThemeLoadResult& result) {
+    if (!parent.HasMember("moon_icons")) {
+        return;
+    }
+
+    const auto& moon_icons = parent["moon_icons"];
+    if (!moon_icons.IsObject()) {
+        result.warnings.emplace_back("Layout moon_icons is not an object.");
+        return;
+    }
+
+    if (moon_icons.HasMember("visible") && moon_icons["visible"].IsBool_()) {
+        target.visible = moon_icons["visible"].GetBool_();
+    }
+
+    if (moon_icons.HasMember("pivot") && moon_icons["pivot"].IsString()) {
+        target.pivot = to_string(moon_icons["pivot"]);
+    }
+
+    if (moon_icons.HasMember("offset") && moon_icons["offset"].IsArray()) {
+        const auto& offset = moon_icons["offset"];
+        if (offset.Size() >= 2 && offset[static_cast<rapidjson::SizeType>(0)].IsInt() && offset[static_cast<rapidjson::SizeType>(1)].IsInt()) {
+            target.offset[0] = offset[static_cast<rapidjson::SizeType>(0)].GetInt();
+            target.offset[1] = offset[static_cast<rapidjson::SizeType>(1)].GetInt();
+        } else {
+            result.warnings.emplace_back("Layout moon_icons offset must be an array of 2 integers.");
+        }
+    }
+}
+
+void apply_portraits_layout(const rapidjson::Value& parent,
+                            std::vector<PortraitLayout>& target,
+                            ThemeLoadResult& result) {
+    if (!parent.HasMember("portraits")) {
+        return;
+    }
+
+    const auto& portraits = parent["portraits"];
+    if (!portraits.IsArray()) {
+        result.warnings.emplace_back("Layout portraits is not an array.");
+        return;
+    }
+
+    // For now, just track that portraits array exists
+    // TODO: Parse individual portrait entries when PortraitLayout structure is expanded
+    target.resize(portraits.Size());
+}
+
+void apply_gauge_asset(const rapidjson::Value& parent,
+                       GaugeAsset& target,
+                       ThemeLoadResult& result) {
+    if (!parent.HasMember("gauge")) {
+        return;
+    }
+
+    const auto& gauge = parent["gauge"];
+    if (!gauge.IsObject()) {
+        result.warnings.emplace_back("Assets gauge is not an object.");
+        return;
+    }
+
+    if (gauge.HasMember("pack") && gauge["pack"].IsString()) {
+        target.pack = to_string(gauge["pack"]);
+    }
+
+    if (gauge.HasMember("folder") && gauge["folder"].IsString()) {
+        target.folder = to_string(gauge["folder"]);
+    }
+}
+
 } // namespace
 
 ThemeLoadResult ThemeLoader::load(const std::filesystem::path& path) const {
@@ -185,6 +257,17 @@ ThemeLoadResult ThemeLoader::load(const std::filesystem::path& path) const {
             apply_guard_entry(guard, "quality_low", result.theme.guard.quality_low, result);
             apply_guard_entry(guard, "break", result.theme.guard.breaker, result);
         }
+    }
+
+    if (document.HasMember("layout") && document["layout"].IsObject()) {
+        const auto& layout = document["layout"];
+        apply_moon_icons_layout(layout, result.theme.layout.moon_icons, result);
+        apply_portraits_layout(layout, result.theme.layout.portraits, result);
+    }
+
+    if (document.HasMember("assets") && document["assets"].IsObject()) {
+        const auto& assets = document["assets"];
+        apply_gauge_asset(assets, result.theme.assets.gauge, result);
     }
 
     result.loaded_from_file = true;
