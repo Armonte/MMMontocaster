@@ -32,6 +32,10 @@ void disable();
 
 void toggle();
 
+void setHostBrowser();
+
+bool isHostBrowser();
+
 bool isEnabled();
 
 bool isDisabled();

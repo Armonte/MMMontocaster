@@ -56,7 +56,7 @@ ENUM ( State, Disabled, Disabling, Enabled, Enabling );
 
 static State state = State::Disabled;
 
-ENUM ( Mode, None, Trial, Mapping );
+ENUM ( Mode, None, Trial, Mapping, HostBrowser );
 
 static Mode mode = Mode::None;
 
@@ -129,6 +129,16 @@ void toggle()
         disable();
     else
         enable();
+}
+
+void setHostBrowser()
+{
+    mode = Mode::HostBrowser;
+}
+
+bool isHostBrowser()
+{
+    return mode == Mode::HostBrowser;
 }
 
 static inline int getTextHeight ( const array<string, 3>& newText )

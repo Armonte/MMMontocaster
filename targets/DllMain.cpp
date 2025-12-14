@@ -32,6 +32,30 @@
 
 using namespace std;
 
+// Global disconnect protection flags - accessible from DllNetplayManager.cpp
+bool gracefulDisconnectCompleted = false;
+bool networkCleanupInProgress = false;
+
+// UDP logging function for meepster's logServer.py
+void udpLogMain(const char* message) {
+    static SOCKET sock = INVALID_SOCKET;
+    static bool sockInitialized = false;
+    
+    if (!sockInitialized) {
+        sock = socket(AF_INET, SOCK_DGRAM, 0);
+        sockInitialized = true;
+    }
+    
+    if (sock != INVALID_SOCKET) {
+        struct sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(17474);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        
+        sendto(sock, message, strlen(message), 0, (struct sockaddr*)&addr, sizeof(addr));
+    }
+}
+
 
 // The main log file path
 #define LOG_FILE                    FOLDER "dll.log"
@@ -101,6 +125,43 @@ bool stopping = false;
 
 NetplayManager* netManPtr = 0;
 
+// Global variable to store target connection info
+static IpAddrPort pendingConnection;
+static bool shouldInitiateConnection = false;
+
+// Global function for initiating online connection from ImGui
+// Global flag to prevent normal IPC callbacks during F1 connections
+bool globalF1ConnectionActive = false;
+
+void initiateOnlineConnection(const std::string& hostIp, uint16_t port)
+{
+    char debugMsg[256];
+    sprintf(debugMsg, "```INIT_CONNECTION: Function called for %s:%d", hostIp.c_str(), port);
+    udpLogMain(debugMsg);
+    
+    // CRITICAL: Set global F1 flag IMMEDIATELY to prevent wrong ClientMode messages
+    globalF1ConnectionActive = true;
+    udpLogMain("```F1_GLOBAL_FLAG: Set globalF1ConnectionActive=true to prevent wrong IPC messages");
+    
+    if (netManPtr && mainApp) {
+        LOG("Initiating connection to %s:%d", hostIp.c_str(), port);
+        udpLogMain("```INIT_CONNECTION: netManPtr and mainApp are valid - proceeding");
+        
+        // Store connection info for main loop to process
+        pendingConnection = IpAddrPort(hostIp, port);
+        shouldInitiateConnection = true;
+        
+        sprintf(debugMsg, "```INIT_CONNECTION: Set shouldInitiateConnection=true for %s:%d", hostIp.c_str(), port);
+        udpLogMain(debugMsg);
+        
+        // Call the netplay manager to prepare
+        netManPtr->initiateOnlineConnection(hostIp, port);
+    } else {
+        LOG("ERROR: netManPtr or mainApp is null, cannot initiate connection");
+        udpLogMain("```INIT_CONNECTION: ERROR - netManPtr or mainApp is NULL!");
+    }
+}
+
 struct DllMain
         : public Main
         , public RefChangeMonitor<Variable, uint32_t>::Owner
@@ -148,6 +209,14 @@ struct DllMain
 
     // If we should disconnect at the next NetplayState change
     bool lazyDisconnect = false;
+
+    // Disconnection timeout tracking
+    int framesWithoutData = 0;
+    static constexpr int DISCONNECT_TIMEOUT_FRAMES = 600;  // 10 seconds at 60fps (more conservative)
+    bool isDisconnecting = false;
+    
+    // F1 connection tracking - prevents disconnect recovery from interfering
+    bool isF1Active = false;
 
     // If the delay and/or rollback should be changed
     bool shouldChangeDelayRollback = false;
@@ -197,6 +266,13 @@ struct DllMain
 
     void frameStepNormal()
     {
+        // Add frame step logging to trace execution
+        static int frameCount = 0;
+        if (gracefulDisconnectCompleted && frameCount < 10) {
+            udpLogMain("```FRAME_STEP: frameStepNormal() called after disconnect");
+            frameCount++;
+        }
+        
         switch ( netMan.getState().value )
         {
             case NetplayState::PreInitial:
@@ -496,6 +572,16 @@ struct DllMain
                             if ( lazyDisconnect )
                             {
                                 lazyDisconnect = false;
+                                
+                                // Skip delayedStop if we've completed a graceful disconnect
+                                if ( gracefulDisconnectCompleted )
+                                {
+                                    udpLogMain("``RETRY_MENU: Skipping delayedStop - graceful disconnect already completed");
+                                    LOG ( "RETRY_MENU: Skipping delayedStop - graceful disconnect already completed" );
+                                    break;
+                                }
+                                
+                                udpLogMain("``RETRY_MENU: Calling delayedStop - lazy disconnect in retry menu");
                                 delayedStop ( "Disconnected!" );
                             }
                             break;
@@ -548,8 +634,34 @@ struct DllMain
             // Poll until we are ready to run
             if ( ! EventManager::get().poll ( POLL_TIMEOUT ) )
             {
+                udpLogMain("```CRITICAL: EventManager::poll() FAILED - Setting appState to Stopping");
                 appState = AppState::Stopping;
+                udpLogMain("```CRITICAL: About to return from main loop due to EventManager failure");
                 return;
+            }
+
+            // Handle pending connection from F1 menu
+            if ( shouldInitiateConnection )
+            {
+                shouldInitiateConnection = false;
+                LOG ( "F1: Sending connection request to main process for %s:%d", 
+                      pendingConnection.addr.c_str(), pendingConnection.port );
+                
+                // UDP log for debugging
+                char debugMsg[256];
+                sprintf(debugMsg, "```DLL_F1: About to send IPC message for %s:%d", 
+                        pendingConnection.addr.c_str(), pendingConnection.port);
+                udpLogMain(debugMsg);
+                
+                // FIX: Use mainApp->procMan to access the ProcessManager instance
+                // Simply send the target address to main process via IPC
+                // Let CCCaster's main process handle the connection like normal
+                udpLogMain("```DLL_F1: About to call mainApp->procMan.ipcSend()");
+                mainApp->procMan.ipcSend ( pendingConnection );
+                udpLogMain("```DLL_F1: mainApp->procMan.ipcSend() call completed");
+                
+                LOG ( "F1: Connection request sent to main process" );
+                udpLogMain("```DLL_F1: IPC message sent to MainApp - should see MAINAPP messages now");
             }
 
             // Don't need to wait for anything in local modes
@@ -558,6 +670,50 @@ struct DllMain
 
             // Check if we are ready to continue running, ie not waiting on remote input or RngState
             const bool ready = ( netMan.isRemoteInputReady() && netMan.isRngStateReady ( shouldSyncRngState ) );
+
+            // Check for disconnection timeout only if we're in netplay and socket is connected
+            if ( !ready && dataSocket && dataSocket->isConnected() && netMan.getState().value >= NetplayState::CharaSelect )
+            {
+                ++framesWithoutData;
+                
+                // Log every 5 seconds
+                if ( framesWithoutData % 300 == 0 )
+                {
+                    LOG ( "No data for %d frames (~%d seconds)", framesWithoutData, framesWithoutData / 60 );
+                }
+                
+                // Timeout after 10 seconds - only if we're sure socket is actually broken
+                if ( framesWithoutData >= DISCONNECT_TIMEOUT_FRAMES && !isDisconnecting )
+                {
+                    LOG ( "Connection timeout detected - doing nothing to prevent crash" );
+                    udpLogMain("``TIMEOUT PATH - Connection lost, doing nothing to keep DLL alive");
+                    isDisconnecting = true;
+                    
+                    // PHASE 1 FIX: Set disconnected flag to unfreeze game
+                    netMan.setDisconnected();
+                    LOG ( "Set disconnected flag due to timeout - game should unfreeze" );
+                    udpLogMain("``TIMEOUT PATH - Set disconnected flag, game should unfreeze");
+                    
+                    // PHASE 1 ENHANCEMENT: Transition to training mode CSS
+                    // F1 FIX: Skip disconnect recovery if F1 connection is active
+                    if (!isF1Active) {
+                        netMan.restoreOfflineGameMode();
+                        LOG ( "Called restoreOfflineGameMode due to timeout - should transition to training CSS" );
+                    } else {
+                        LOG ( "F1: Skipped restoreOfflineGameMode due to active F1 connection" );
+                    }
+                    udpLogMain("``TIMEOUT PATH - Called restoreOfflineGameMode");
+                    
+                    // DO NOTHING - just mark that we detected the timeout
+                    // This prevents any cleanup that could crash the DLL
+                    udpLogMain("``TIMEOUT PATH - Timeout noted, continuing to prevent crash");
+                    break;
+                }
+            }
+            else if ( ready )
+            {
+                framesWithoutData = 0;  // Reset counter when we receive data
+            }
 
             // Don't resend inputs in spectator mode
             if ( clientMode.isSpectate() )
@@ -584,6 +740,11 @@ struct DllMain
                     waitInputsTimer = 0;
                 }
             }
+        }
+
+        // Add logging to trace execution after disconnect handling
+        if (gracefulDisconnectCompleted) {
+            udpLogMain("``POST-DISCONNECT: Continuing main loop execution after successful disconnect");
         }
 
         if ( rollbackTimer < minRollbackSpacing )
@@ -829,6 +990,18 @@ struct DllMain
 #undef R
 
             syncLog.deinitialize();
+            
+            // Skip delayedStop if we've completed a graceful disconnect
+            if ( gracefulDisconnectCompleted )
+            {
+                udpLogMain("``DESYNC: Skipping delayedStop - graceful disconnect already completed");
+                LOG ( "DESYNC: Skipping delayedStop - graceful disconnect already completed" );
+                randomInputs = false;
+                localInputs [ clientMode.isLocal() ? 1 : 0 ] = 0;
+                return;
+            }
+            
+            udpLogMain("``DESYNC: Calling delayedStop - desync detected");
             delayedStop ( "Desync!" );
 
             randomInputs = false;
@@ -858,11 +1031,29 @@ struct DllMain
                 LOG_TO ( syncLog, "Desync!" );
                 syncLog.deinitialize();
 
+                // Skip delayedStop if we've completed a graceful disconnect
+                if ( gracefulDisconnectCompleted )
+                {
+                    udpLogMain("``RNG_DESYNC: Skipping delayedStop - graceful disconnect already completed");
+                    LOG ( "RNG_DESYNC: Skipping delayedStop - graceful disconnect already completed" );
+                    return;
+                }
+                
+                udpLogMain("``RNG_DESYNC: Calling delayedStop - RNG desync detected");
                 delayedStop ( ERROR_INTERNAL );
                 return;
             }
             else
             {
+                // Skip delayedStop if we've completed a graceful disconnect
+                if ( gracefulDisconnectCompleted )
+                {
+                    udpLogMain("``RNG_CHECK: Skipping delayedStop - graceful disconnect already completed");
+                    LOG ( "RNG_CHECK: Skipping delayedStop - graceful disconnect already completed" );
+                    return;
+                }
+                
+                udpLogMain("``RNG_CHECK: Calling delayedStop - RNG check failed");
                 delayedStop ( ERROR_INTERNAL );
                 return;
             }
@@ -1011,6 +1202,15 @@ struct DllMain
             LOG_TO ( syncLog, "Invalid transition: %s -> %s", netMan.getState(), state );
             syncLog.deinitialize();
 
+            // Skip delayedStop if we've completed a graceful disconnect
+            if ( gracefulDisconnectCompleted )
+            {
+                udpLogMain("``INVALID_TRANSITION: Skipping delayedStop - graceful disconnect already completed");
+                LOG ( "INVALID_TRANSITION: Skipping delayedStop - graceful disconnect already completed" );
+                return;
+            }
+            
+            udpLogMain("``INVALID_TRANSITION: Calling delayedStop - invalid state transition");
             delayedStop ( ERROR_INTERNAL );
             return;
         }
@@ -1099,9 +1299,18 @@ struct DllMain
         {
             lazyDisconnect = false;
 
+            // Skip delayedStop if we've completed a graceful disconnect
+            if ( gracefulDisconnectCompleted )
+            {
+                udpLogMain("``Skipping delayedStop - graceful disconnect already completed");
+                LOG ( "Skipping delayedStop - graceful disconnect already completed" );
+                return;
+            }
+
             // If not entering RetryMenu and we're already disconnected...
             if ( !dataSocket || !dataSocket->isConnected() )
             {
+                udpLogMain("``CALLING delayedStop - lazyDisconnect logic");
                 delayedStop ( "Disconnected!" );
                 return;
             }
@@ -1194,6 +1403,17 @@ struct DllMain
 
     void delayedStop ( const string& error )
     {
+        // CRITICAL: Prevent force-close during graceful disconnect
+        if ( gracefulDisconnectCompleted || isDisconnecting )
+        {
+            udpLogMain("``delayedStop() BLOCKED - graceful disconnect in progress or completed");
+            LOG ( "delayedStop() blocked - graceful disconnect in progress or completed" );
+            return;
+        }
+        
+        udpLogMain("``delayedStop() EXECUTING - will force close game");
+        LOG ( "delayedStop() executing - will force close game: %s", error.c_str() );
+        
         if ( ! error.empty() )
             procMan.ipcSend ( new ErrorMessage ( error ) );
 
@@ -1325,6 +1545,16 @@ struct DllMain
             ASSERT ( dataSocket != 0 );
             ASSERT ( dataSocket->isConnected() == true );
 
+            // F1 FIX: Check if this is an F1 connection and force proper initialization
+            if (isF1Active) {
+                LOG("F1: Data socket connected for F1 connection - forcing frame sync initialization");
+                // Clear disconnected flag to enable network functionality
+                netMan.clearDisconnected();
+                
+                // Start sending input frames immediately
+                initialTimer.reset();
+            }
+
             netplayStateChanged ( NetplayState::Initial );
 
             initialTimer.reset();
@@ -1346,6 +1576,13 @@ struct DllMain
 
         dataSocket->send ( serverCtrlSocket->address );
 
+        // F1 FIX: Check if this is an F1 connection client-side
+        if (isF1Active) {
+            LOG("F1: Client data socket connected for F1 - initializing frame sync");
+            netMan.clearDisconnected();
+            initialTimer.reset();
+        }
+
         netplayStateChanged ( NetplayState::Initial );
 
         initialTimer.reset();
@@ -1355,25 +1592,78 @@ struct DllMain
     {
         LOG ( "socketDisconnected ( %08x )", socket );
 
-        if ( socket == dataSocket.get() )
+        // ULTRA MINIMAL FIX: Just prevent crashes, don't do ANY cleanup
+        try 
         {
-            if ( netMan.getState() == NetplayState::PreInitial )
+            if ( socket == dataSocket.get() )
             {
-                dataSocket = SmartSocket::connectUDP ( this, address );
-                LOG ( "dataSocket=%08x", dataSocket.get() );
+                if ( netMan.getState() == NetplayState::PreInitial )
+                {
+                    dataSocket = SmartSocket::connectUDP ( this, address );
+                    LOG ( "dataSocket=%08x", dataSocket.get() );
+                    return;
+                }
+
+                if ( lazyDisconnect )
+                    return;
+
+                // DO NOTHING - just log and return
+                // This prevents any socket cleanup that could crash
+                LOG ( "Socket disconnected - doing minimal cleanup to prevent crash" );
+                
+                // PHASE 1 FIX: Set disconnected flag to unfreeze game
+                netMan.setDisconnected();
+                LOG ( "Set disconnected flag - game should unfreeze" );
+                
+                // PHASE 1 ENHANCEMENT: Transition to training mode CSS
+                // F1 FIX: Skip disconnect recovery if F1 connection is active
+                if (!isF1Active) {
+                    netMan.restoreOfflineGameMode();
+                    LOG ( "Called restoreOfflineGameMode - should transition to training CSS" );
+                } else {
+                    LOG ( "F1: Skipped restoreOfflineGameMode due to active F1 connection" );
+                }
+                
+                // Don't call any socket cleanup methods - just mark it as gone
+                // The socket destructor will be called eventually, but not in this callback
+                // This should prevent the immediate crash while keeping IPC alive
                 return;
             }
 
-            if ( lazyDisconnect )
-                return;
-
-            delayedStop ( "Disconnected!" );
-            return;
+            // Only clean up non-data sockets (these shouldn't crash)
+            redirectedSockets.erase ( socket );
+            popPendingSocket ( socket );
+            popSpectator ( socket );
         }
-
-        redirectedSockets.erase ( socket );
-        popPendingSocket ( socket );
-        popSpectator ( socket );
+        catch ( ... )
+        {
+            LOG ( "Exception in socketDisconnected - all crashes prevented" );
+            
+            // Emergency: Don't do ANYTHING that could cause another crash
+            if ( socket == dataSocket.get() )
+            {
+                LOG ( "Emergency: Data socket crash prevented - doing nothing" );
+                
+                // PHASE 1 FIX: Set disconnected flag even in emergency case
+                netMan.setDisconnected();
+                LOG ( "Emergency: Set disconnected flag - game should unfreeze" );
+                
+                // PHASE 1 ENHANCEMENT: Try to transition to training CSS even in emergency
+                // F1 FIX: Skip disconnect recovery if F1 connection is active
+                if (!isF1Active) {
+                    try {
+                        netMan.restoreOfflineGameMode();
+                        LOG ( "Emergency: Called restoreOfflineGameMode - should transition to training CSS" );
+                    } catch (...) {
+                        LOG ( "Emergency: restoreOfflineGameMode failed - continuing anyway" );
+                    }
+                } else {
+                    LOG ( "F1: Skipped emergency restoreOfflineGameMode due to active F1 connection" );
+                }
+                
+                // Don't even touch the socket pointer - just log and return
+            }
+        }
     }
 
     void socketRead ( Socket *socket, const MsgPtr& msg, const IpAddrPort& address ) override
@@ -1603,19 +1893,85 @@ struct DllMain
 
     void ipcDisconnected() override
     {
+        udpLogMain("```IPC DISCONNECTED - ABOUT TO STOP EVENT MANAGER");
         appState = AppState::Stopping;
         EventManager::get().stop();
         stopping = true;
+        udpLogMain("```IPC DISCONNECTED - EVENT MANAGER STOPPED");
     }
 
     void ipcRead ( const MsgPtr& msg ) override
     {
-        if ( ! msg.get() )
+        if ( ! msg.get() ) {
+            // Direct UDP debug (bypasses disabled logging in release)
+            {
+                SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                if (udpSock != INVALID_SOCKET) {
+                    struct sockaddr_in debugAddr;
+                    debugAddr.sin_family = AF_INET;
+                    debugAddr.sin_port = htons(17474);
+                    debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                    
+                    char debugMsg[256];
+                    sprintf(debugMsg, "```F1_IPC_RECV: Received null message");
+                    sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                    closesocket(udpSock);
+                }
+            }
             return;
+        }
+
+        // Direct UDP debug (bypasses disabled logging in release)
+        {
+            SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+            if (udpSock != INVALID_SOCKET) {
+                struct sockaddr_in debugAddr;
+                debugAddr.sin_family = AF_INET;
+                debugAddr.sin_port = htons(17474);
+                debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                
+                char debugMsg[256];
+                sprintf(debugMsg, "```F1_IPC_RECV: Received message type %d", (int)msg->getMsgType());
+                sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                closesocket(udpSock);
+            }
+        }
+
+        // F1 DEBUG: Log all message types that reach the handler  
+        if (msg->getMsgType() == MsgType::ClientMode) {
+            SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+            if (udpSock != INVALID_SOCKET) {
+                struct sockaddr_in debugAddr;
+                debugAddr.sin_family = AF_INET;
+                debugAddr.sin_port = htons(17474);
+                debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                
+                char debugMsg[256];
+                sprintf(debugMsg, "```F1_IPC_HANDLER: ClientMode message reached handler - about to process");
+                sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                closesocket(udpSock);
+            }
+        }
 
         switch ( msg->getMsgType() )
         {
             case MsgType::OptionsMessage:
+                // Direct UDP debug
+                {
+                    SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[256];
+                        sprintf(debugMsg, "```F1_IPC_RECV: Processing OptionsMessage");
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                        closesocket(udpSock);
+                    }
+                }
+                
                 options = msg->getAs<OptionsMessage>();
 
                 if ( options[Options::AppDir] )
@@ -1748,15 +2104,78 @@ struct DllMain
                 break;
 
             case MsgType::ControllerMappings:
+                // Direct UDP debug
+                {
+                    SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[256];
+                        sprintf(debugMsg, "```F1_IPC_RECV: Processing ControllerMappings");
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                        closesocket(udpSock);
+                    }
+                }
+                
                 KeyboardState::clear();
                 initControllers ( msg->getAs<ControllerMappings>() );
                 break;
 
             case MsgType::ClientMode:
-                if ( clientMode != ClientMode::Unknown )
+            {
+                // F1 FIX: Allow updating from Offline to netplay modes for F1 connections
+                // Normal startup: Unknown -> Host/Client (allowed)  
+                // F1 connection: Offline -> Host/Client (now allowed)
+                
+                ClientMode newMode = msg->getAs<ClientMode>();
+                
+                // F1 DEBUG: Hex dump the actual value and flags fields
+                LOG("F1: ClientMode value=%d (%02x), flags=%d (%02x) (struct size=%d)",
+                    (int)newMode.value, (int)newMode.value, 
+                    (int)newMode.flags, (int)newMode.flags, sizeof(ClientMode));
+                
+                // F1 DEBUG: Log the parsed ClientMode values
+                LOG("F1: Parsed ClientMode: value=%d, flags=%d", (int)newMode.value, (int)newMode.flags);
+                LOG("F1: Current ClientMode: value=%d, flags=%d", (int)clientMode.value, (int)clientMode.flags);
+                LOG("F1: ClientMode transition: %d->%d", (int)clientMode.value, (int)newMode.value);
+                
+                // Direct UDP debug (bypasses disabled logging in release)
+                {
+                    SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[512];
+                        sprintf(debugMsg, "```F1_MODE_UPDATE: ClientMode %d->%d, isNetplay %d->%d, val_hex=%02x, flags_hex=%02x", 
+                               (int)clientMode.value, (int)newMode.value,
+                               clientMode.isNetplay(), newMode.isNetplay(),
+                               (int)newMode.value, (int)newMode.flags);
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                        closesocket(udpSock);
+                    }
+                }
+                
+                // Only skip if it's the same mode (avoid redundant processing)
+                if ( clientMode.value == newMode.value && clientMode.flags == newMode.flags )
                     break;
 
-                clientMode = msg->getAs<ClientMode>();
+                // F1 CRITICAL FIX: Detect F1 connection and set flag IMMEDIATELY
+                // This must happen BEFORE any disconnect callbacks can interfere
+                bool wasOffline = (clientMode.value == 6);  // Previous mode was offline
+                bool willBeNetplay = newMode.isNetplay();   // New mode is netplay
+                if (wasOffline && willBeNetplay) {
+                    // This is an F1 connection: offline -> netplay transition
+                    isF1Active = true;
+                    udpLogMain("F1_EARLY_DETECT: Set isF1Active=true to prevent disconnect interference");
+                }
+
+                clientMode = newMode;
                 clientMode.flags |= ClientMode::GameStarted;
 
                 for ( const AsmHacks::Asm& hack : AsmHacks::addExtraDraws )
@@ -1779,13 +2198,25 @@ struct DllMain
 
                 LOG ( "%s: flags={ %s }", clientMode, clientMode.flagString() );
                 break;
+            }
 
             case MsgType::IpAddrPort:
-                if ( ! address.empty() )
+                // F1 FIX: Allow address update for F1 connections
+                if ( ! address.empty() && !isF1Active ) {
+                    LOG ( "F1: Skipping IpAddrPort - address already set to '%s'", address );
                     break;
+                }
 
                 address = msg->getAs<IpAddrPort>();
                 LOG ( "address='%s'", address );
+                
+                // F1 FIX: Use safe UDP logging without format() which might not be available
+                {
+                    char addrMsg[256];
+                    sprintf(addrMsg, "F1_ADDR: Updated address to %s:%d", 
+                            address.addr.c_str(), address.port);
+                    udpLogMain(addrMsg);
+                }
                 break;
 
             case MsgType::SpectateConfig:
@@ -1848,23 +2279,195 @@ struct DllMain
                 break;
 
             case MsgType::NetplayConfig:
-                if ( netMan.config.delay != 0xFF )
+            {
+                // F1 FIX: Allow NetplayConfig re-processing for F1 offline->online transitions
+                bool isF1Transition = (netMan.config.delay != 0xFF &&  // Already configured from startup
+                                       netMan.config.mode.value == 6 &&  // Currently offline
+                                       msg->getAs<NetplayConfig>().mode.isNetplay());  // New config is netplay
+                
+                if ( netMan.config.delay != 0xFF && !isF1Transition ) {
+                    char skipMsg[256];
+                    sprintf(skipMsg, "F1_CONFIG_SKIP: NetplayConfig skipped - already configured (delay=%d)",
+                            netMan.config.delay);
+                    udpLogMain(skipMsg);
                     break;
+                }
+                
+                char acceptMsg[256];
+                sprintf(acceptMsg, "F1_CONFIG_ACCEPT: Processing NetplayConfig - mode %d->%d",
+                        (int)netMan.config.mode.value, 
+                        (int)msg->getAs<NetplayConfig>().mode.value);
+                udpLogMain(acceptMsg);
 
                 netMan.config = msg->getAs<NetplayConfig>();
-                netMan.config.mode = clientMode;
+                
+                // F1 DEBUG: Log what mode values we have
+                LOG("F1: NetplayConfig received - msg.mode=%d, clientMode=%d", 
+                    (int)msg->getAs<NetplayConfig>().mode.value, (int)clientMode.value);
+                LOG("F1: NetplayManager state=%d", (int)netMan.getState().value);
+                
+                // F1 FIX: For F1 connections, clientMode might still be Offline when NetplayConfig arrives
+                // Check if the NetplayConfig contains a valid netplay mode and use it
+                ClientMode msgMode = msg->getAs<NetplayConfig>().mode;
+                if (msgMode.isNetplay() && !clientMode.isNetplay()) {
+                    // F1 connection: NetplayConfig has netplay mode but clientMode is still offline
+                    // Update clientMode to match the NetplayConfig mode
+                    LOG("F1: NetplayConfig has netplay mode %d, updating clientMode from %d", 
+                        (int)msgMode.value, (int)clientMode.value);
+                    clientMode = msgMode;
+                    clientMode.flags |= ClientMode::GameStarted;
+                    netMan.config.mode = clientMode;
+                    
+                    // F1 CRITICAL FIX: Reset NetplayManager disconnected state
+                    // After a disconnect, _disconnected=true blocks all network functionality
+                    // We need to reset this for F1 connections to work
+                    LOG("F1: Resetting NetplayManager disconnected state for F1 connection");
+                    netMan.clearDisconnected();  // Clear _disconnected flag
+                    
+                    // F1 CRITICAL FIX: Force NetplayManager state initialization
+                    LOG("F1: Force initializing NetplayManager for F1 connection");
+                    // The setState function will handle the transition properly
+                    netMan.setState(NetplayState::PreInitial);
+                    
+                    // F1 CRITICAL FIX: Set flag to prevent disconnect recovery from interfering
+                    isF1Active = true;  // This will prevent restoreOfflineGameMode() calls
+                } else {
+                    // Normal flow: use clientMode (should already be set by ClientMode message)
+                    netMan.config.mode = clientMode;
+                    
+                    // F1 FIX: Also clear disconnected flag for normal F1 connections
+                    // Check if this might be an F1 connection (clientMode is netplay but we had a disconnect)
+                    if (clientMode.isNetplay()) {
+                        LOG("F1: Clearing disconnected flag for netplay connection");
+                        netMan.clearDisconnected();  // Ensure network functionality is enabled
+                        
+                        // F1: If NetplayManager is not initialized, force initialization
+                        if (netMan.getState() == NetplayState::Unknown || netMan.getState() == NetplayState::PreInitial) {
+                            LOG("F1: NetplayManager in state %d, ensuring PreInitial", (int)netMan.getState().value);
+                            netMan.setState(NetplayState::PreInitial);
+                        }
+                    }
+                }
+                
                 netMan.config.sessionId = Logger::get().sessionId;
 
                 if ( netMan.config.delay == 0xFF )
                     THROW_EXCEPTION ( "delay=%u", ERROR_INVALID_HOST_CONFIG, netMan.config.delay );
+                
+                // F1 SYNC FIX: Force both clients to intro state for proper netplay synchronization
+                // This runs when DLL receives NetplayConfig from MainApp via IPC
+                // Direct UDP debug (bypasses disabled logging in release)
+                {
+                    SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                    if (udpSock != INVALID_SOCKET) {
+                        struct sockaddr_in debugAddr;
+                        debugAddr.sin_family = AF_INET;
+                        debugAddr.sin_port = htons(17474);
+                        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                        
+                        char debugMsg[256];
+                        sprintf(debugMsg, "```F1_DEBUG: NetplayConfig received - globalMode=%d (isNetplay=%d), configMode=%d", 
+                               (int)clientMode.value, clientMode.isNetplay(), (int)netMan.config.mode.value);
+                        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                        closesocket(udpSock);
+                    }
+                }
+                
+                // F1 CRITICAL: For F1 connections, we need to ensure the data socket is ready
+                // In normal flow, dataSocket is created during MainApp's openGame()
+                // For F1, we're already running, so we need to handle it here
+                if (clientMode.isClient() && !dataSocket) {
+                    LOG("F1: Client mode but no dataSocket - F1 connection detected");
+                    // Mark as F1 to trigger special handling
+                    isF1Active = true;
+                    
+                    // We'll wait for the data socket to be created by the normal TCP/UDP flow
+                    // MainApp creates it after InitialConfig exchange
+                }
+                
+                // F1 FIX: Trigger intro for both normal netplay AND F1 connections
+                // clientMode.isNetplay() handles normal connections
+                // netMan.config.mode.isNetplay() handles F1 from offline training
+                if ( clientMode.isNetplay() || netMan.config.mode.isNetplay() ) {
+                    // Use same addresses as disconnect recovery code (DllNetplayManager.cpp:1398-1399)
+                    uint32_t* goalGameModeAddr = (uint32_t*) 0x0055d1d0;        // goal game mode
+                    uint8_t* newSceneFlagAddr = (uint8_t*) 0x0055dec3;          // g_NewSceneFlag
+                    uint32_t* currentGameModeAddr = (uint32_t*) 0x0054eee8;     // current game mode (for logging)
+                    
+                    // Read current state for debugging
+                    uint32_t currentBefore = *currentGameModeAddr;
+                    uint32_t goalBefore = *goalGameModeAddr;
+                    uint8_t flagBefore = *newSceneFlagAddr;
+                    
+                    // F1 ENHANCED FIX: Check for F1 connection from CharaSelect
+                    // Use isF1Active (global) instead of isF1Transition (local to NetplayConfig case)
+                    bool isF1FromCharaSelect = (isF1Active && currentBefore == CC_GAME_MODE_CHARA_SELECT);
+                    bool isF1Reconnection = (currentBefore == CC_GAME_MODE_OPENING && goalBefore == CC_GAME_MODE_OPENING);
+                    
+                    if (isF1FromCharaSelect) {
+                        // F1 connection from CharaSelect - force transition to intro
+                        LOG("F1: Detected F1 connection from CharaSelect - forcing intro transition");
+                        udpLogMain("```F1_INTRO: Forcing transition from CharaSelect to intro movie");
+                        
+                        // Force immediate transition to intro movie
+                        *goalGameModeAddr = CC_GAME_MODE_OPENING;      // Goal to intro
+                        *newSceneFlagAddr = 1;                         // Trigger transition
+                        
+                        // Clear any training mode flags
+                        uint32_t* p1EnabledAddr = (uint32_t*) 0x0074CBB0;  // P1 input enabled
+                        uint32_t* p2EnabledAddr = (uint32_t*) 0x0074CBB4;  // P2 input enabled
+                        *p1EnabledAddr = 1;  // Enable P1 for network
+                        *p2EnabledAddr = 1;  // Enable P2 for network
+                        
+                    } else if (isF1Reconnection) {
+                        // F1 reconnection after disconnect - need full reset
+                        LOG("F1: Detected F1 reconnection - performing full game state reset");
+                        
+                        // Reset to main menu first, then transition to intro
+                        *currentGameModeAddr = CC_GAME_MODE_MAIN;      // Force current mode to main menu
+                        *goalGameModeAddr = CC_GAME_MODE_OPENING;      // Then goal to intro
+                        *newSceneFlagAddr = 1;                         // Trigger transition
+                        
+                        // Additional resets that might be needed
+                        // Reset any training mode or disconnect recovery flags
+                        uint32_t* p1EnabledAddr = (uint32_t*) 0x0074CBB0;  // P1 input enabled
+                        uint32_t* p2EnabledAddr = (uint32_t*) 0x0074CBB4;  // P2 input enabled
+                        *p1EnabledAddr = 0;  // Disable P1 (will be re-enabled for network)
+                        *p2EnabledAddr = 0;  // Disable P2 (will be re-enabled for network)
+                    } else {
+                        // Normal connection - standard intro transition
+                        *goalGameModeAddr = CC_GAME_MODE_OPENING;  // 3 = intro/opening sequence
+                        *newSceneFlagAddr = 1;                     // trigger scene transition
+                    }
+                    
+                    // Direct UDP debug logging (bypasses disabled logging in release)
+                    {
+                        SOCKET udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+                        if (udpSock != INVALID_SOCKET) {
+                            struct sockaddr_in debugAddr;
+                            debugAddr.sin_family = AF_INET;
+                            debugAddr.sin_port = htons(17474);
+                            debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                            
+                            char syncMsg[512];
+                            sprintf(syncMsg, "```F1_SYNC: DLL forcing intro sync - current:%d->%d, goal:%d->3, flag:%d->1", 
+                                   currentBefore, *currentGameModeAddr, goalBefore, flagBefore);
+                            sendto(udpSock, syncMsg, strlen(syncMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+                            closesocket(udpSock);
+                        }
+                    }
+                }
 
-                if ( clientMode.isNetplay() )
+                // F1 FIX: Also check netMan.config.mode for F1 connections
+                if ( clientMode.isNetplay() || netMan.config.mode.isNetplay() )
                 {
                     if ( netMan.config.hostPlayer != 1 && netMan.config.hostPlayer != 2 )
                         THROW_EXCEPTION ( "hostPlayer=%u", ERROR_INVALID_HOST_CONFIG, netMan.config.hostPlayer );
 
                     // Determine the player numbers
-                    if ( clientMode.isHost() )
+                    // F1 FIX: Use netMan.config.mode if clientMode isn't set yet
+                    ClientMode effectiveMode = clientMode.isNetplay() ? clientMode : netMan.config.mode;
+                    if ( effectiveMode.isHost() )
                     {
                         localPlayer = netMan.config.hostPlayer;
                         remotePlayer = ( 3 - netMan.config.hostPlayer );
@@ -1997,6 +2600,7 @@ struct DllMain
                       netMan.config.rollbackDelay, netMan.config.winCount, netMan.config.hostPlayer,
                       localPlayer, remotePlayer, netMan.config.names[0], netMan.config.names[1] );
                 break;
+            }
 
             default:
                 if ( clientMode.isSpectate() )
@@ -2021,10 +2625,31 @@ struct DllMain
             ++waitInputsTimer;
 
             if ( waitInputsTimer > ( MAX_WAIT_INPUTS_INTERVAL / RESEND_INPUTS_INTERVAL ) )
+            {
+                // Skip delayedStop if we've completed a graceful disconnect
+                if ( gracefulDisconnectCompleted )
+                {
+                    udpLogMain("``TIMER: Skipping delayedStop - graceful disconnect already completed");
+                    LOG ( "TIMER: Skipping delayedStop - graceful disconnect already completed" );
+                    return;
+                }
+                
+                udpLogMain("``TIMER: Calling delayedStop - timeout detected");
                 delayedStop ( "Timed out!" );
+            }
         }
         else if ( timer == initialTimer.get() )
         {
+            // Skip delayedStop if we've completed a graceful disconnect
+            if ( gracefulDisconnectCompleted )
+            {
+                udpLogMain("``INITIAL_TIMER: Skipping delayedStop - graceful disconnect already completed");
+                LOG ( "INITIAL_TIMER: Skipping delayedStop - graceful disconnect already completed" );
+                initialTimer.reset();
+                return;
+            }
+            
+            udpLogMain("``INITIAL_TIMER: Calling delayedStop - initial timeout");
             delayedStop ( "Disconnected!" );
             initialTimer.reset();
         }
@@ -2107,6 +2732,69 @@ struct DllMain
         // ChangeMonitor::get().addPtrToRef ( this, Variable ( Variable::AutoReplaySave ),
         //                                    const_cast<const uint32_t *&> ( AsmHacks::autoReplaySaveStatePtr ), 0u );
 #endif // NOT RELEASE
+    }
+
+    // Handle graceful disconnection when timeout is detected
+    void handleGracefulDisconnect()
+    {
+        udpLogMain("``handleGracefulDisconnect - ENTRY");
+        
+        // SET FLAGS IMMEDIATELY to prevent race conditions with delayedStop()
+        gracefulDisconnectCompleted = true;
+        isDisconnecting = true;
+        udpLogMain("``FLAGS SET IMMEDIATELY - gracefulDisconnectCompleted = true");
+        
+        LOG ( "Handling graceful disconnection - restoring offline state" );
+        
+        try {
+            udpLogMain("``About to close data socket");
+            // Close the data socket if it exists
+            if ( dataSocket )
+            {
+                LOG ( "Closing data socket" );
+                udpLogMain("``Calling dataSocket->disconnect()");
+                dataSocket->disconnect();
+                udpLogMain("``Calling dataSocket.reset()");
+                dataSocket.reset();
+                udpLogMain("``dataSocket reset complete");
+            }
+            
+            udpLogMain("``Clearing timers and flags");
+            // Clear any pending network operations
+            resendTimer.reset();
+            waitInputsTimer = -1;
+            
+            // Clear network state flags
+            lazyDisconnect = false;
+            framesWithoutData = 0;
+            
+            // Call NetplayManager to restore offline game mode
+            udpLogMain("``About to call netMan.handleDisconnection()");
+            netMan.handleDisconnection();
+            udpLogMain("``Returned from netMan.handleDisconnection()");
+            
+            // Mark disconnection as handled
+            isDisconnecting = false;
+            // gracefulDisconnectCompleted already set at start to win race condition
+            
+            // NO MENU TRANSITION - just test stable network cleanup
+            udpLogMain("``Network cleanup completed - NO MENU TRANSITION");
+            udpLogMain("``GRACEFUL DISCONNECT SUCCESS - Game should remain open and playable");
+            char stateMsg[256];
+            snprintf(stateMsg, sizeof(stateMsg), "``Final state: gracefulDisconnectCompleted=%d, isDisconnecting=%d", 
+                    gracefulDisconnectCompleted ? 1 : 0, isDisconnecting ? 1 : 0);
+            udpLogMain(stateMsg);
+            
+            udpLogMain("``handleGracefulDisconnect - SUCCESS - ABOUT TO RETURN TO CALLER");
+            LOG ( "Graceful disconnection completed - game should remain open" );
+        }
+        catch (...) {
+            LOG ( "Error during graceful disconnection - minimal cleanup" );
+            isDisconnecting = false;
+            if ( dataSocket ) {
+                dataSocket.reset();
+            }
+        }
     }
 
     // Destructor
@@ -2237,18 +2925,21 @@ extern "C" BOOL APIENTRY DllMain ( HMODULE, DWORD reason, LPVOID )
             }
             catch ( const Exception& exc )
             {
+                LOG ( "Exception during DLL initialization: %s", exc.str().c_str() );
                 exit ( -1 );
             }
 #ifdef NDEBUG
             catch ( const std::exception& exc )
             {
+                LOG ( "std::exception during DLL initialization: %s", exc.what() );
                 exit ( -1 );
             }
             catch ( ... )
             {
+                LOG ( "Unknown exception during DLL initialization" );
                 exit ( -1 );
             }
-#endif // NDEBUG
+#endif
 
             if ( ! SetThreadExecutionState ( ES_CONTINUOUS
                                              | ES_DISPLAY_REQUIRED

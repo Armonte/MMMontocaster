@@ -33,6 +33,9 @@ public:
 
     // Indicate which player is the remote player
     void setRemotePlayer ( uint8_t player );
+    
+    // Initiate connection to host from already-running game
+    void initiateOnlineConnection ( const std::string& hostIp, uint16_t port );
 
     // Update the current netplay frame
     void updateFrame();
@@ -139,12 +142,25 @@ public:
     // Check if the next state transition is valid
     bool isValidNext ( NetplayState state );
 
+    // Handle disconnection and restore offline state
+    void handleDisconnection();
+    
+    // Restore the game to offline mode (training at CSS)
+    void restoreOfflineGameMode();
+    
+    // Set disconnected flag to unfreeze game (Phase 1 fix)
+    void setDisconnected() { _disconnected = true; }
+    void clearDisconnected() { _disconnected = false; }
+
     friend class DllRollbackManager;
 
 private:
 
     // Netplay state
     NetplayState _state;
+    
+    // Flag to indicate network disconnection - used to unfreeze game
+    bool _disconnected = false;
 
     // State of the menu navigation input
     int32_t _targetMenuState = -1;

@@ -91,6 +91,7 @@ private:
     void deleteTrialRow( int row );
     void insertTrialRow( int row );
     void handleMappingOverlay();
+    void handleHostBrowserOverlay();
     void disableTrialMenuOverlay();
     void saveEdits();
 

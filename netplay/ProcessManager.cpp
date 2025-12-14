@@ -1,12 +1,15 @@
 #include "ProcessManager.hpp"
 #include "TcpSocket.hpp"
 #include "Messages.hpp"
+#include "Protocol.hpp"
 #include "Constants.hpp"
 #include "EventManager.hpp"
 #include "Exceptions.hpp"
 #include "ErrorStringsExt.hpp"
 
 #include <windows.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <direct.h>
 
 #include <algorithm>
@@ -471,6 +474,29 @@ bool ProcessManager::ipcSend ( Serializable *msg )
 
 bool ProcessManager::ipcSend ( const MsgPtr& msg )
 {
+    // F1 DEBUG: Log IPC send attempts
+    static SOCKET udpSock = INVALID_SOCKET;
+    if (udpSock == INVALID_SOCKET) {
+        udpSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    }
+    if (udpSock != INVALID_SOCKET) {
+        struct sockaddr_in debugAddr;
+        debugAddr.sin_family = AF_INET;
+        debugAddr.sin_port = htons(17474);
+        debugAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+        
+        char debugMsg[256];
+        bool connected = isConnected();
+        if (!connected) {
+            sprintf(debugMsg, "```F1_IPC_SEND_FAIL: Not connected! pipe=%p, socket=%p, client=%d, connected=%d",
+                    _pipe, _ipcSocket, _ipcSocket ? _ipcSocket->isClient() : -1, _connected);
+        } else {
+            sprintf(debugMsg, "```F1_IPC_SEND: Sending message type=%d", 
+                    msg.get() ? (int)msg->getMsgType() : -1);
+        }
+        sendto(udpSock, debugMsg, strlen(debugMsg), 0, (struct sockaddr*)&debugAddr, sizeof(debugAddr));
+    }
+    
     if ( ! isConnected() )
         return false;
     else

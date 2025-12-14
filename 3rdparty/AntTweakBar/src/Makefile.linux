@@ -17,7 +17,7 @@ OUT_DIR		= ../lib
 
 CXX      	= gcc
 CXXFLAGS 	= $(CXXCFG) -Wall -fPIC -fno-strict-aliasing -D_UNIX -D__PLACEMENT_NEW_INLINE
-INCPATH  	= -I../include -I/usr/local/include -I/usr/X11R6/include -I/usr/include
+INCPATH  	= -I../include -I/usr/local/include -I/usr/X11R6/include -I/usr/include -I/usr/include/GL
 LINK     	= gcc
 #LIBS     	= -L/usr/X11R6/lib -L. -lglfw -lGL -lGLU -lX11 -lXxf86vm -lXext -lpthread -lm
 #LIBS     	= -L/usr/X11R6/lib -lGL -lX11 -lXxf86vm -lXext -lpthread -lm

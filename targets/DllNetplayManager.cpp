@@ -19,6 +19,26 @@
 #include <winsock2.h>
 #include <wininet.h>
 
+// UDP logging function for meepster's logServer.py
+void udpLog(const char* message) {
+    static SOCKET sock = INVALID_SOCKET;
+    static bool sockInitialized = false;
+    
+    if (!sockInitialized) {
+        sock = socket(AF_INET, SOCK_DGRAM, 0);
+        sockInitialized = true;
+    }
+    
+    if (sock != INVALID_SOCKET) {
+        struct sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(17474);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        
+        sendto(sock, message, strlen(message), 0, (struct sockaddr*)&addr, sizeof(addr));
+    }
+}
+
 void ___log(const char* msg)
 {
 	const char* ipAddress = "127.0.0.1";
@@ -773,6 +793,39 @@ uint16_t NetplayManager::getInput ( uint8_t player )
 {
     ASSERT ( player == 1 || player == 2 );
 
+    // If disconnected, handle input differently based on mode
+    if ( _disconnected ) {
+        static int logCount = 0;
+        
+        // In training mode OR at character select, local player should be able to control both players
+        if ( (config.mode.isTraining() && config.mode.isOffline()) || (_state == NetplayState::CharaSelect) ) {
+            if ( logCount < 3 ) {
+                udpLog("```DISCONNECTED: Training mode or CSS - processing all input normally for both players");
+                logCount++;
+            }
+            // Fall through to normal input processing (both players controllable)
+        } else {
+            // In versus/online mode, only allow local player input
+            bool isLocalPlayer = (player == _localPlayer);
+            
+            if ( isLocalPlayer ) {
+                // Local player: Continue processing input normally
+                if ( logCount < 3 ) {
+                    udpLog("```DISCONNECTED: Processing local player input normally");
+                    logCount++;
+                }
+                // Fall through to normal input processing for local player
+            } else {
+                // Remote player: Return no input (they're disconnected)
+                if ( logCount < 3 ) {
+                    udpLog("```DISCONNECTED: Blocking remote player input (player disconnected)");
+                    logCount++;
+                }
+                return 0;  // No input for remote player
+            }
+        }
+    }
+
     switch ( _state.value )
     {
         case NetplayState::PreInitial:
@@ -974,6 +1027,21 @@ void NetplayManager::setBothInputs ( const BothInputs& bothInputs )
 
 bool NetplayManager::isRemoteInputReady() const
 {
+    // PHASE 1 FIX: If disconnected, always return true to unfreeze game
+    if ( _disconnected )
+    {
+        return true;  // Game can continue with local input only
+    }
+    
+    // F1 DEBUG: Log state when checking remote input readiness
+    static int debugCounter = 0;
+    if (++debugCounter % 600 == 0) {  // Log every 10 seconds at 60fps
+        char syncMsg[256];
+        sprintf(syncMsg, "F1_SYNC_CHECK: isRemoteInputReady state=%d, mode=%d, index=%d",
+                (int)_state.value, (int)config.mode.value, getIndex());
+        udpLog(syncMsg);
+    }
+    
     if ( _state.value < NetplayState::CharaSelect || _state.value == NetplayState::Skippable
             || _state.value == NetplayState::Loading || _state.value == NetplayState::RetryMenu
          || _state.value == NetplayState::CharaIntro )
@@ -1054,6 +1122,15 @@ void NetplayManager::setRngState ( const RngState& rngState )
 
 bool NetplayManager::isRngStateReady ( bool shouldSyncRngState ) const
 {
+    // F1 DEBUG: Log RNG state readiness check
+    static int rngDebugCounter = 0;
+    if (++rngDebugCounter % 600 == 0) {  // Log every 10 seconds at 60fps
+        char rngMsg[256];
+        sprintf(rngMsg, "F1_RNG_CHECK: isRngStateReady shouldSync=%d, mode=%d, state=%d",
+                shouldSyncRngState, (int)config.mode.value, (int)_state.value);
+        udpLog(rngMsg);
+    }
+    
     if ( !shouldSyncRngState
             || config.mode.isHost() || config.mode.isBroadcast() || config.mode.isOffline()
             || _state.value < NetplayState::CharaSelect )
@@ -1290,6 +1367,184 @@ void NetplayManager::findAndReplaceAll( string& data, string toSearch, string re
     {
         data.replace(pos, toSearch.size(), replaceStr);
         pos = data.find(toSearch, pos + replaceStr.size());
+    }
+}
+
+void NetplayManager::handleDisconnection()
+{
+    udpLog("```DISCONNECT_HANDLER: handleDisconnection() called - WHO CALLED ME?");
+    
+    // SET GLOBAL PROTECTION FLAGS to prevent all crashes
+    extern bool gracefulDisconnectCompleted;
+    extern bool networkCleanupInProgress;
+    gracefulDisconnectCompleted = true;
+    networkCleanupInProgress = true;
+    udpLog("```DISCONNECT_HANDLER: GLOBAL PROTECTION FLAGS SET");
+    
+    udpLog("```DISCONNECT_HANDLER: Doing FULL disconnect cleanup - disabling input processing");
+    LOG ( "NetplayManager::handleDisconnection - full cleanup to prevent crashes and unwanted inputs" );
+    
+    try {
+        // PROPER DISCONNECTION CLEANUP - disable input processing completely
+        _disconnected = true;  // THIS WILL DISABLE ALL INPUT PROCESSING
+        _state = NetplayState::Initial;  // Reset to offline state (but _disconnected overrides this)
+        
+        // DISABLE INPUT PROCESSING - switch to offline training mode
+        config.mode.value = ClientMode::Offline;   // Offline mode (makes isOffline() true)
+        config.mode.flags = ClientMode::Training;  // Training mode flag (makes isTraining() true)
+        config.hostPlayer = 1;  // Local player only (no network)
+        config.delay = 0;  // No input delay in offline mode
+        config.rollback = 0;  // No rollback in offline mode
+        
+        // Clear input buffers completely
+        _inputs[0].clear();
+        _inputs[1].clear();
+        
+        // Clear any retry menu state
+        _localRetryMenuIndex = -1;
+        _remoteRetryMenuIndex = -1;
+        
+        // Reset frame tracking to avoid invalid memory access
+        _indexedFrame.parts.index = 0;
+        _indexedFrame.parts.frame = 0;
+        
+        // Clear any pending state transitions or actions
+        _targetMenuState = -1;
+        _targetMenuIndex = -1;
+        _trainingResetState = -1;
+        
+        udpLog("```DISCONNECT_HANDLER: FULL disconnect cleanup completed - _disconnected=true, input processing BLOCKED");
+        
+        // NO GAME MODE CHANGES - avoid any menu transitions that might crash
+        // NO socket operations - avoid network cleanup that might crash
+        
+    } catch (...) {
+        udpLog("```DISCONNECT_HANDLER: Exception in minimal cleanup - continuing anyway");
+    }
+    
+    udpLog("```DISCONNECT_HANDLER: About to return - input processing disabled, training mode set");
+    return;
+}
+
+void NetplayManager::restoreOfflineGameMode()
+{
+    udpLog("```NetplayManager::restoreOfflineGameMode - ENTRY");
+    LOG ( "NetplayManager::restoreOfflineGameMode - comprehensive cleanup approach" );
+    
+    try {
+        // Set to offline mode first
+        config.mode = ClientMode ( ClientMode::Offline, 0 );  // No special flags
+        config.hostPlayer = 1;  // Local player 1
+        config.delay = 0;       // No input delay in offline mode
+        config.rollback = 0;    // No rollback in offline mode
+        config.rollbackDelay = 0;
+        
+        // ONLY the two addresses that work manually
+        uint32_t* goalGameModeAddr = (uint32_t*) 0x0055d1d0;        // goal game mode
+        uint8_t* newSceneFlagAddr = (uint8_t*) 0x0055dec3;          // g_NewSceneFlag
+        uint32_t* currentGameModeAddr = (uint32_t*) 0x0054eee8;     // current game mode (READ ONLY for logging)
+        
+        // Training mode specific addresses
+        int32_t* dummyStatusAddr = CC_DUMMY_STATUS_ADDR;             // Training dummy status
+        uint8_t* p1EnabledAddr = CC_P1_ENABLED_FLAG_ADDR;            // Player 1 enabled flag
+        uint8_t* p2EnabledAddr = CC_P2_ENABLED_FLAG_ADDR;            // Player 2 enabled flag
+        
+        // Read current values before modification
+        uint32_t currentGameModeBefore = *currentGameModeAddr;
+        uint32_t goalGameModeBefore = *goalGameModeAddr;
+        uint8_t newSceneFlagBefore = *newSceneFlagAddr;
+        int32_t dummyStatusBefore = *dummyStatusAddr;
+        uint8_t p1EnabledBefore = *p1EnabledAddr;
+        uint8_t p2EnabledBefore = *p2EnabledAddr;
+        
+        char beforeMsg[256];
+        sprintf(beforeMsg, "```BEFORE: currentGameMode=%d, goalGameMode=%d, newSceneFlag=%d, dummyStatus=%d, p1Enabled=%d, p2Enabled=%d", 
+                currentGameModeBefore, goalGameModeBefore, newSceneFlagBefore, dummyStatusBefore, p1EnabledBefore, p2EnabledBefore);
+        udpLog(beforeMsg);
+        
+        // PHASE 1 ENHANCEMENT: Transition to training mode character select
+        // Now that the game is unfrozen, we can safely do state transitions
+        *goalGameModeAddr = 20;     // Character Select (CC_GAME_MODE_CHARA_SELECT)
+        *newSceneFlagAddr = 1;      // Trigger scene transition
+        
+        // TRAINING MODE SETUP: Set dummy status for training mode
+        *dummyStatusAddr = CC_DUMMY_STATUS_STAND;  // Standing dummy (most common default)
+        
+        // TRAINING MODE SETUP: Enable both players so you can switch between P1/P2 at CSS
+        *p1EnabledAddr = 1;  // Enable Player 1
+        *p2EnabledAddr = 1;  // Enable Player 2 (allows switching to P2 slot)
+        
+        // Read values after modification
+        uint32_t currentGameModeAfter = *currentGameModeAddr;
+        uint32_t goalGameModeAfter = *goalGameModeAddr;
+        uint8_t newSceneFlagAfter = *newSceneFlagAddr;
+        int32_t dummyStatusAfter = *dummyStatusAddr;
+        uint8_t p1EnabledAfter = *p1EnabledAddr;
+        uint8_t p2EnabledAfter = *p2EnabledAddr;
+        
+        char afterMsg[512];
+        sprintf(afterMsg, "```AFTER: goalGameMode=%d->%d, newSceneFlag=%d->%d, dummyStatus=%d->%d, p1Enabled=%d->%d, p2Enabled=%d->%d (training mode setup)", 
+                goalGameModeBefore, goalGameModeAfter, newSceneFlagBefore, newSceneFlagAfter, 
+                dummyStatusBefore, dummyStatusAfter, p1EnabledBefore, p1EnabledAfter, p2EnabledBefore, p2EnabledAfter);
+        udpLog(afterMsg);
+        
+        udpLog("```NetplayManager::restoreOfflineGameMode - SUCCESS");
+    }
+    catch (...) {
+        udpLog("```NetplayManager::restoreOfflineGameMode - EXCEPTION");
+        LOG ( "Error in restoreOfflineGameMode - trying fallback" );
+        config.mode = ClientMode ( ClientMode::Offline, 0 );
+        *CC_GAME_MODE_ADDR = CC_GAME_MODE_MAIN;
+    }
+}
+
+void NetplayManager::initiateOnlineConnection ( const std::string& hostIp, uint16_t port )
+{
+    LOG ( "NetplayManager::initiateOnlineConnection to %s:%d", hostIp.c_str(), port );
+    udpLog ( "```OFFLINE->ONLINE: Initiating connection" );
+    
+    try {
+        // Step 1: Configure for online play
+        config.mode.value = ClientMode::Client;
+        config.mode.flags = 0;  // Clear any training/offline flags
+        config.hostPlayer = 2;  // We're joining as client (host is player 1)
+        config.delay = 0;       // Will be negotiated with host
+        config.rollback = 0;    // Will be negotiated with host
+        _disconnected = false;  // Clear disconnected flag
+        
+        // Step 2: Clear any existing state
+        _inputs[0].clear();
+        _inputs[1].clear();
+        _startIndex = 0;
+        _spectateStartIndex = 0;
+        _indexedFrame = {{ 0, 0 }};
+        _startWorldTime = 0;
+        
+        // Step 3: Prepare for network synchronization (no scene reset!)
+        LOG ( "Preparing network state for connection to %s:%d", hostIp.c_str(), port );
+        udpLog ( "```OFFLINE->ONLINE: Preparing for network sync" );
+        
+        // Step 4: F1 FIX - Don't change state if already in CharaSelect or later
+        // The state machine doesn't allow going backwards, and we don't need to
+        if (_state == NetplayState::Unknown || _state == NetplayState::PreInitial || _state == NetplayState::Initial) {
+            setState ( NetplayState::PreInitial );
+        } else {
+            LOG ( "F1: Already in state %s, not changing state", _state );
+            char stateMsg[256];
+            sprintf(stateMsg, "```F1_STATE: Keeping current state %d for F1 connection", (int)_state.value);
+            udpLog(stateMsg);
+        }
+        
+        // MainApp will handle actual TCP connection via SmartSocket::connectTCP
+        // Once connected, CCCaster's normal sync protocol will take over
+        LOG ( "Network state prepared - MainApp will handle TCP connection" );
+        udpLog ( "```OFFLINE->ONLINE: Ready for MainApp to establish connection" );
+        
+    } catch ( ... ) {
+        LOG ( "Error in initiateOnlineConnection" );
+        udpLog ( "```OFFLINE->ONLINE: ERROR - Connection failed" );
+        // Restore offline mode on error
+        config.mode = ClientMode ( ClientMode::Offline, ClientMode::Training );
     }
 }
 
