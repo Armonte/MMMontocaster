@@ -16,10 +16,10 @@
 #include <regex>
 #include <optional>
 #include <filesystem>
+#include <cstring>
 namespace fs = std::filesystem;
 
 using namespace std;
-
 
 static int memwrite ( void *dst, const void *src, size_t len )
 {
@@ -57,7 +57,6 @@ uint8_t sfxFilterArray[CC_SFX_ARRAY_LEN] = { 0 };
 uint8_t sfxMuteArray[CC_SFX_ARRAY_LEN] = { 0 };
 
 uint32_t numLoadedColors = 0;
-
 
 // The team order is always (initial) point character first
 static unordered_map<uint32_t, pair<uint32_t, uint32_t>> teamOrders =
@@ -581,7 +580,4 @@ void _naked_paletteCallback() {
 
     ASMRET;
 }
-
-// -----
-
 } // namespace AsmHacks

@@ -4,6 +4,7 @@
 #include "DllTrialManager.hpp"
 #include "ProcessManager.hpp"
 #include "Enum.hpp"
+#include "PluginHost/DetourManager.hpp"
 
 #include <windows.h>
 #include <d3dx9.h>
@@ -479,6 +480,16 @@ void renderOverlayText ( IDirect3DDevice9 *device, const D3DVIEWPORT9& viewport 
         DrawTextW ( font, TrialManager::comboName, rect3, DT_WORDBREAK | DT_LEFT,
                     OVERLAY_DEBUG_COLOR );
     }
+
+    if ( cccaster::plugin::DetourManager::instance().render_callbacks_enabled ( cccaster::plugin::RenderLayerId::Menu ) )
+    {
+        cccaster::plugin::RenderContext render_context{};
+        render_context.device = device;
+        render_context.viewport_width = viewport.Width;
+        render_context.viewport_height = viewport.Height;
+        cccaster::plugin::DetourManager::instance().invoke_render ( cccaster::plugin::RenderLayerId::Menu, render_context );
+    }
+
     if ( state == State::Disabled )
         return;
 

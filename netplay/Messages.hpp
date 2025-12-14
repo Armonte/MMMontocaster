@@ -7,14 +7,17 @@
 #include "Version.hpp"
 #include "Compression.hpp"
 #include "CharacterSelect.hpp"
+#include "PaletteManager.hpp"
 
 #include <cereal/types/array.hpp>
 #include <cereal/types/vector.hpp>
 #include <cereal/types/string.hpp>
 #include <cereal/types/unordered_map.hpp>
+#include <cereal/types/map.hpp>
 
 #include <array>
 #include <cstring>
+#include <map>
 
 
 struct ErrorMessage : public SerializableSequence
@@ -504,4 +507,82 @@ struct BothInputs : public SerializableSequence, public BaseInputs
     std::string str() const override { return format ( "BothInputs[%s]", indexedFrame ); }
 
     PROTOCOL_MESSAGE_BOILERPLATE ( BothInputs, indexedFrame.value, inputs )
+};
+
+
+struct PaletteSync : public SerializableSequence
+{
+    uint8_t player = 0;  // 1 or 2 - which player's palettes
+    std::map<uint32_t, PaletteManager> palettes;  // charaID -> PaletteManager
+    
+    PaletteSync(uint8_t player, const std::map<uint32_t, PaletteManager>& palettes)
+        : player(player), palettes(palettes) {}
+    
+    // Validation for security
+    bool isValid() const
+    {
+        if (player != 1 && player != 2)
+            return false;
+        
+        // Limit number of characters with custom palettes (reasonable limit)
+        if (palettes.size() > 50)  // Sanity check - adjust if needed
+            return false;
+        
+        // Validate each palette
+        for (const auto& kv : palettes)
+        {
+            const uint32_t charaID = kv.first;
+            const PaletteManager& pm = kv.second;
+            
+            // Validate character ID (reasonable range - MBAA has ~30 characters)
+            if (charaID > 100)  // Safety limit
+                return false;
+            
+            // Validate palette numbers and colors
+            const auto& pmPalettes = pm.getPalettes();
+            for (const auto& paletteKv : pmPalettes)
+            {
+                const uint32_t paletteNum = paletteKv.first;
+                if (paletteNum >= 36)  // Only 0-35 allowed (36 palettes max)
+                    return false;
+                
+                // Validate color indices and values
+                for (const auto& colorKv : paletteKv.second)
+                {
+                    const uint32_t colorIdx = colorKv.first;
+                    const uint32_t colorVal = colorKv.second;
+                    
+                    if (colorIdx >= 256)  // Only 0-255 allowed
+                        return false;
+                    
+                    // Color value should be valid RGB (0x000000-0xFFFFFF)
+                    // PaletteManager stores colors with alpha=0, so check that
+                    if ((colorVal & 0xFF000000) != 0)  // Alpha should be 0
+                        return false;
+                    
+                    // Limit number of color changes per palette (prevent DoS)
+                    if (paletteKv.second.size() > 256)  // Can't have more than 256 colors
+                        return false;
+                }
+            }
+        }
+        
+        return true;
+    }
+    
+    std::string str() const override 
+    { 
+        size_t totalPalettes = 0;
+        size_t totalColors = 0;
+        for (const auto& kv : palettes)
+        {
+            totalPalettes += kv.second.getPalettes().size();
+            for (const auto& p : kv.second.getPalettes())
+                totalColors += p.second.size();
+        }
+        return format("PaletteSync[player=%d, chars=%zu, palettes=%zu, colors=%zu]", 
+                     player, palettes.size(), totalPalettes, totalColors); 
+    }
+    
+    PROTOCOL_MESSAGE_BOILERPLATE(PaletteSync, player, palettes)
 };

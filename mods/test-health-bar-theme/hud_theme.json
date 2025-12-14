@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "name": "Green Health Bar Theme",
+    "author": "Test",
+    "description": "Changes health bar colors to green for testing"
+  },
+  "colors": {
+    "meter": {
+      "lower": {
+        "argb": "#FF00FF00"
+      },
+      "middle": {
+        "argb": "#FF00CC00"
+      },
+      "upper": {
+        "argb": "#FF009900"
+      },
+      "unlimited": {
+        "argb": "#FF00FF00"
+      },
+      "heat": {
+        "argb": "#FFFF6600"
+      },
+      "max": {
+        "argb": "#FF00FF00"
+      },
+      "blood_heat": {
+        "argb": "#FFFF0000"
+      },
+      "break": {
+        "argb": "#FF00FF00"
+      }
+    },
+    "guard": {
+      "quality_high": "#FF00FF00",
+      "quality_low": "#FFFF0000",
+      "break": "#FF808080"
+    }
+  },
+  "layout": {
+    "moon_icons": {
+      "visible": true,
+      "pivot": "center",
+      "offset": [0, 0]
+    }
+  }
+}
+
+
+

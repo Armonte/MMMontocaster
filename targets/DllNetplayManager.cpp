@@ -12,6 +12,7 @@
 #include <unordered_set>
 #include <ctime>
 #include <fstream>
+#include <filesystem>
 
 
 #include <ws2tcpip.h>
@@ -1248,14 +1249,35 @@ void NetplayManager::exportInputs() {
     std::time_t now = time( NULL );
     strftime( timebuf, 20, "%y%m%d-%H%M%S", localtime( &now ) );
 
+    const std::vector<int> indexes = getInGameIndexes();
+    if (indexes.empty()) {
+        LOG("NetplayManager::exportInputs: no in-game indexes available, skipping export");
+        return;
+    }
+
+    if (!AsmHacks::replayName || AsmHacks::replayName[0] == '\0') {
+        LOG("NetplayManager::exportInputs: replayName not set, skipping export");
+        return;
+    }
+
+    std::filesystem::path replayPath(AsmHacks::replayName);
+    if (!std::filesystem::exists(replayPath)) {
+        LOG("NetplayManager::exportInputs: replay source '%s' does not exist, skipping export", AsmHacks::replayName);
+        return;
+    }
+
     sprintf( namebuf, "ReplayVS/%sx%s_%s.repraw",
              getShortCharaName( *CC_P1_CHARACTER_ADDR ),
              getShortCharaName( *CC_P2_CHARACTER_ADDR) ,
              timebuf );
     ofstream repFile2 ( namebuf, ios::out );
-    vector<int> c = getInGameIndexes();
-    repFile2 << c.size() << endl;
-    for ( int q : c ) {
+    if (!repFile2.is_open()) {
+        LOG("NetplayManager::exportInputs: failed to create '%s'", namebuf);
+        return;
+    }
+
+    repFile2 << indexes.size() << endl;
+    for ( int q : indexes ) {
         sprintf( buf, "%d\n", _inputs[0].getEndFrame( q ) );
         repFile2 << buf;
         for ( uint32_t i = 0; i < _inputs[0].getEndFrame( q ); ++i ) {
@@ -1271,6 +1293,11 @@ void NetplayManager::exportInputs() {
     ReplayCreator::ReplayFile f;
     ReplayCreator r;
     r.load( &f, ( char* )AsmHacks::replayName );
+    if (f.rounds.empty()) {
+        LOG("NetplayManager::exportInputs: no rounds loaded from '%s'; skipping fixReplay", AsmHacks::replayName);
+        return;
+    }
+
     r.fixReplay( &f, namebuf, NULL );
     r.dump( f, namebuf2 );
 

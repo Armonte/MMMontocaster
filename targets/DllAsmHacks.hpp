@@ -3,11 +3,15 @@
 #include "Constants.hpp"
 #include "Exceptions.hpp"
 #include "DllNetplayManager.hpp"
+#include "PaletteManager.hpp"
 
 #include <vector>
 #include <array>
 #include <windows.h>
 #include <map>
+#include <unordered_map>
+#include <cstdint>
+#include <type_traits>
 
 #define packedStruct typedef struct __attribute__((packed))
 
@@ -115,6 +119,27 @@
 
 namespace AsmHacks
 {
+namespace detail {
+    template <typename T>
+    constexpr std::uintptr_t to_uintptr(T value) {
+        if constexpr (std::is_pointer_v<T>) {
+            return reinterpret_cast<std::uintptr_t>(value);
+        } else {
+            return static_cast<std::uintptr_t>(value);
+        }
+    }
+
+    template <typename Src, typename Dst>
+    constexpr std::uint32_t rel32(Src src, Dst dst) {
+        return static_cast<std::uint32_t>(to_uintptr(dst) - (to_uintptr(src) + 5u));
+    }
+
+    template <typename T>
+    constexpr std::uint32_t abs32(T value) {
+        return static_cast<std::uint32_t>(to_uintptr(value));
+    }
+} // namespace detail
+
 
 // DLL callback function
 extern "C" void callback();
@@ -156,6 +181,13 @@ extern uint32_t numLoadedColors;
 void colorLoadCallback ( uint32_t player, uint32_t chara, uint32_t *paletteData );
 void colorLoadCallback ( uint32_t player, uint32_t chara, uint32_t palette, uint32_t *singlePaletteData );
 
+// Get palettes for network sync
+const std::unordered_map<uint32_t, PaletteManager>& getPalMans ( uint32_t player );
+
+// Set palettes for network sync
+void setPalMans ( uint32_t player, const std::map<uint32_t, PaletteManager>& palettes );
+
+
 
 // Struct for storing assembly code
 struct Asm
@@ -175,7 +207,7 @@ typedef std::vector<Asm> AsmList;
 static const AsmList hookMainLoop =
 {
     { MM_HOOK_CALL1_ADDR, {
-        0xE8, INLINE_DWORD ( ( ( char * ) &callback ) - MM_HOOK_CALL1_ADDR - 5 ),   // call callback
+        0xE8, INLINE_DWORD ( AsmHacks::detail::rel32(MM_HOOK_CALL1_ADDR, &callback) ),   // call callback
         0xE9, INLINE_DWORD ( MM_HOOK_CALL2_ADDR - MM_HOOK_CALL1_ADDR - 10 )         // jmp MM_HOOK_CALL2_ADDR
     } },
     { MM_HOOK_CALL2_ADDR, {
@@ -258,7 +290,7 @@ static const AsmList hijackMenu =
     // This hack uses the strategy of jumping around the extra spaces left in between code.
     { ( void * ) 0x4294D1, {
         0x8B, 0x7E, 0x40,                                           // mov edi,[esi+40]
-        0x89, 0x3D, INLINE_DWORD ( &currentMenuIndex ),             // mov [&currentMenuIndex],edi
+        0x89, 0x3D, INLINE_DWORD ( AsmHacks::detail::abs32(&currentMenuIndex) ),             // mov [&currentMenuIndex],edi
         0xE9, 0xF1, 0x04, 0x00, 0x00                                // jmp 0x4299D0 (AFTER)
     } },
     { ( void * ) 0x429817, {
@@ -277,7 +309,7 @@ static const AsmList hijackMenu =
     { ( void * ) 0x428F52, {
         0x53, 0x51, 0x52,                                           // push ebx,ecx,edx
         0x8D, 0x5C, 0x24, 0x30,                                     // lea ebx,[esp+30]
-        0xB9, INLINE_DWORD ( &menuConfirmState ),                   // mov ecx,&menuConfirmState
+        0xB9, INLINE_DWORD ( AsmHacks::detail::abs32(&menuConfirmState) ),                   // mov ecx,&menuConfirmState
         0xEB, 0x04                                                  // jmp 0x428F64
     } },
     { ( void * ) 0x428F64, {
@@ -314,7 +346,7 @@ static const AsmList hijackMenu =
 static const AsmList detectRoundStart =
 {
     { ( void * ) 0x440D16, {
-        0xB9, INLINE_DWORD ( &roundStartCounter ),                  // mov ecx,[&roundStartCounter]
+        0xB9, INLINE_DWORD ( AsmHacks::detail::abs32(&roundStartCounter) ),                  // mov ecx,[&roundStartCounter]
         0xE9, 0xE2, 0x02, 0x00, 0x00                                // jmp 0x441002
     } },
     { ( void * ) 0x441002, {
@@ -337,7 +369,7 @@ extern "C" void saveReplayCb();
 static const AsmList saveReplay =
 {
     { ( void * ) 0x4824D4, {
-        0xA3, INLINE_DWORD ( &replayName ),                         // mov [&replayName],eax
+        0xA3, INLINE_DWORD ( AsmHacks::detail::abs32(&replayName) ),                         // mov [&replayName],eax
         0xE9, 0x45, 0xFC, 0xFF, 0xFF,                               // jmp 0x482123
     } },
     { ( void * ) 0x482123, {
@@ -345,7 +377,7 @@ static const AsmList saveReplay =
         0xE9, 0x10, 0x07, 0x00, 0x00,                               // jmp 0x48283e
     } },
     { ( void * ) 0x4830A4, {
-        0xE8, INLINE_DWORD ( ( ( char * ) &saveReplayCb ) - 0x4830A4 - 5 ),   // call callback
+        0xE8, INLINE_DWORD ( AsmHacks::detail::rel32(0x4830A4, &saveReplayCb) ),   // call callback
         0x90, //0x90, 0x90, 0x90, 0x90, 0x90,
         0xE9, 0xF2, 0xFE, 0xFF, 0xFF,                               // jmp 0x482FA1
     } },
@@ -372,7 +404,7 @@ static const AsmList saveReplay =
 static const Asm detectAutoReplaySave =
     { ( void * ) 0x482D9B, {
         0x8D, 0x88, 0xD0, 0x00, 0x00, 0x00,                         // lea ecx,[eax+000000D0]
-        0x89, 0x0D, INLINE_DWORD ( &autoReplaySaveStatePtr ),       // mov [&autoReplaySaveStatePtr],ecx
+        0x89, 0x0D, INLINE_DWORD ( AsmHacks::detail::abs32(&autoReplaySaveStatePtr) ),       // mov [&autoReplaySaveStatePtr],ecx
         // Rest of the code is unchanged, just shifted down
         0x59, 0x5E, 0x83, 0xC4, 0x10, 0xC2, 0x04, 0x00
     } };
@@ -389,7 +421,7 @@ static const Asm forceGotoReplay  = { ( void * ) 0x42B475, { 0xE9, 0xC7, 0x00, 0
 // Hijack the game's Escape key so we can control when it exits the game
 static const Asm hijackEscapeKey =
     { ( void * ) 0x4A0070, {
-        0x80, 0x3D, INLINE_DWORD ( &enableEscapeToExit ), 0x00,     // cmp byte ptr [&enableEscapeToExit],00
+        0x80, 0x3D, INLINE_DWORD ( AsmHacks::detail::abs32(&enableEscapeToExit) ), 0x00,     // cmp byte ptr [&enableEscapeToExit],00
         0xA0, INLINE_DWORD ( 0x5544F1 ),                            // mov ax,[005544F1]
         0x75, 0x03,                                                 // jne 0x4A0081 (AFTER)
         0x66, 0x31, 0xC0,                                           // xor ax,ax
@@ -509,7 +541,7 @@ extern "C" void charaSelectColorCb();
 // The color values can be effectively overridden here. This is only effective during character select.
 static const Asm hijackCharaSelectColors =
     { ( void * ) 0x489CD1, {
-        0xE8, INLINE_DWORD ( ( ( char * ) &charaSelectColorCb ) - 0x489CD1 - 5 ),       // call charaSelectColorCb
+        0xE8, INLINE_DWORD ( AsmHacks::detail::rel32(0x489CD1, &charaSelectColorCb) ),       // call charaSelectColorCb
         0x90, 0x90, 0x90,                                                               // nops
     } };
 
@@ -522,7 +554,7 @@ static const AsmList hijackLoadingStateColors =
 {
     { ( void * ) 0x448202, {
         0x50,                                                                           // push eax
-        0xE8, INLINE_DWORD ( ( ( char * ) &loadingStateColorCb ) - 0x448202 - 1 - 5 ),  // call loadingStateColorCb
+        0xE8, INLINE_DWORD ( AsmHacks::detail::rel32(0x448202 + 1, &loadingStateColorCb) ),  // call loadingStateColorCb
         0x58,                                                                           // pop eax
         0x85, 0xC0,                                                                     // test eax,eax
         0xEB, 0x38,                                                                     // jmp 0x448245
@@ -557,7 +589,7 @@ extern "C" void addExtraDrawCallsCb();
 static const AsmList addExtraDraws =
 {
     { ( void * ) 0x432CD2, {
-            0xE8, INLINE_DWORD ( ( ( char * ) &addExtraDrawCallsCb ) - 0x432CD2 - 5 ),       // call charaSelectColorCb
+            0xE8, INLINE_DWORD ( AsmHacks::detail::rel32(0x432CD2, &addExtraDrawCallsCb) ),       // call charaSelectColorCb
             0x6A, 0xFF,                                          // Push -1
             0xE9, 0x54, 0x00, 0x00, 0x00                         // jmp 432D32
         } },
@@ -569,11 +601,11 @@ extern "C" void addExtraTexturesCb();
 static const AsmList addExtraTextures =
 {
      /*{ ( void * ) 0x41c0f1, {
-         0xE8, INLINE_DWORD ( ( ( char * ) &callbackExtraTextures ) - 0x41c0f1 - 5 ),       // call addExtraTexturesCb
+         0xE8, INLINE_DWORD ( AsmHacks::detail::rel32(0x41C0F1, &callbackExtraTextures) ),       // call addExtraTexturesCb
          0x8B, 0x8C, 0x24, 0x1C, 0x01, 0x00, 0x00
          } },*/
     { ( void * ) 0x41BE38, {
-         0xE8, INLINE_DWORD ( ( ( char * ) &addExtraTexturesCb ) - 0x41BE38 - 5 ),       // call addExtraTexturesCb
+         0xE8, INLINE_DWORD ( AsmHacks::detail::rel32(0x41BE38, &addExtraTexturesCb) ),       // call addExtraTexturesCb
          0xC3
     } },
 };

@@ -18,14 +18,17 @@
 #include "DllRollbackManager.hpp"
 #include "DllTrialManager.hpp"
 #include "ExternalIpAddress.hpp"
+#include "PluginHost/PluginHost.hpp"
+#include "PluginHost/DetourManager.hpp"
 
 #include <windows.h>
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include <MinHook.h>
 
 #include <vector>
 #include <memory>
+#include <filesystem>
 #include <algorithm>
+#include <cstdint>
 
 using namespace std;
 
@@ -107,6 +110,7 @@ static ENUM ( AppState, Uninitialized, Polling, Stopping, Deinitialized ) appSta
 // Main application instance
 struct DllMain;
 static shared_ptr<DllMain> mainApp;
+static std::uint64_t mainFrameCallbackHandle = 0;
 
 // Mutex for deinitialize()
 static Mutex deinitMutex;
@@ -1721,6 +1725,54 @@ struct DllMain
                 netMan.setRngState ( msg->getAs<RngState>() );
                 return;
 
+            case MsgType::PaletteSync:
+            {
+                if ( options[Options::DisablePaletteSync] )
+                {
+                    LOG ( "PaletteSync received but disabled by option" );
+                    return;
+                }
+                
+                PaletteSync sync = msg->getAs<PaletteSync>();
+                
+                if ( !sync.isValid() )
+                {
+                    LOG ( "Invalid PaletteSync received - rejecting for security" );
+                    return;
+                }
+                
+                // Apply remote player's palettes
+                // Note: sync.player is the REMOTE player's number
+                uint8_t remotePlayer = sync.player;
+                
+                LOG ( "Received PaletteSync for remote player %d with %zu characters",
+                      remotePlayer, sync.palettes.size() );
+                
+                // Apply remote player's palettes
+                // Remote player 1 -> our palMans[0], remote player 2 -> our palMans[1]
+                AsmHacks::setPalMans ( remotePlayer, sync.palettes );
+                
+                // Log details
+                for ( const auto& kv : sync.palettes )
+                {
+                    uint32_t charaID = kv.first;
+                    const PaletteManager& remotePM = kv.second;
+                    
+                    size_t paletteCount = 0;
+                    size_t colorCount = 0;
+                    for ( const auto& p : remotePM.getPalettes() )
+                    {
+                        paletteCount++;
+                        colorCount += p.second.size();
+                    }
+                    
+                    LOG ( "  - Character %u: %zu palette(s) with %zu custom color(s)",
+                          charaID, paletteCount, colorCount );
+                }
+                
+                return;
+            }
+
 #ifndef RELEASE
             case MsgType::SyncHash:
                 remoteSync.push_back ( msg );
@@ -2428,8 +2480,32 @@ struct DllMain
 
                     netMan.setRemotePlayer ( remotePlayer );
 
-                    // F1 FIX: Use effectiveMode for consistency
-                    if ( effectiveMode.isHost() )
+                    // Send palette sync after NetplayConfig is confirmed (if not disabled)
+                    if ( !options[Options::DisablePaletteSync] && localPlayer != 0 )
+                    {
+                        const auto& ourPalettes = AsmHacks::getPalMans ( localPlayer );
+                        if ( !ourPalettes.empty() )
+                        {
+                            // Convert unordered_map to map for PaletteSync
+                            std::map<uint32_t, PaletteManager> paletteMap;
+                            for ( const auto& kv : ourPalettes )
+                                paletteMap[kv.first] = kv.second;
+                            
+                            PaletteSync paletteSync ( localPlayer, paletteMap );
+                            if ( paletteSync.isValid() )
+                            {
+                                LOG ( "Sending PaletteSync for player %d with %zu characters",
+                                      localPlayer, paletteSync.palettes.size() );
+                                procMan.ipcSend ( new PaletteSync ( paletteSync ) );
+                            }
+                            else
+                            {
+                                LOG ( "PaletteSync validation failed - not sending" );
+                            }
+                        }
+                    }
+
+                    if ( clientMode.isHost() )
                     {
                         serverCtrlSocket = SmartSocket::listenTCP ( this, address.port );
                         LOG ( "serverCtrlSocket=%08x", serverCtrlSocket.get() );
@@ -2495,7 +2571,7 @@ struct DllMain
                 *CC_DAMAGE_LEVEL_ADDR = 2;
                 *CC_TIMER_SPEED_ADDR = 2;
                 *CC_WIN_COUNT_VS_ADDR = ( uint32_t ) ( netMan.config.winCount ? netMan.config.winCount : 2 );
-
+                //CHANGEMELATER
                 // *CC_WIN_COUNT_VS_ADDR = 1;
                 // *CC_DAMAGE_LEVEL_ADDR = 4;
 
@@ -2505,9 +2581,11 @@ struct DllMain
                     // Manually control intro state
                     WRITE_ASM_HACK ( AsmHacks::hijackIntroState );
 
-                    // Disable stage animations (TODO)
-                    *CC_STAGE_ANIMATION_OFF_ADDR = 1;
+                    // TODO: Implement game settings manager (settings.dat) similar to `concerto` before re-enabling this override.
+                    // *CC_STAGE_ANIMATION_OFF_ADDR = 1;
                 }
+
+                // Once Again behavior is now handled entirely by the plugin's SafetyHook detours.
 
                 if ( netMan.autoReplaySave )
                 {
@@ -2767,6 +2845,21 @@ private:
 static void initializeDllMain()
 {
     mainApp.reset ( new DllMain() );
+
+    auto& detour = cccaster::plugin::DetourManager::instance();
+    if ( mainFrameCallbackHandle != 0 )
+    {
+        detour.remove_callback ( mainFrameCallbackHandle );
+    }
+    mainFrameCallbackHandle = detour.add_frame_callback (
+        cccaster::plugin::DetourPoint::FramePost,
+        cccaster::plugin::CallbackPriority::SystemHigh,
+        [] ( const cccaster::plugin::FrameContext& ) {
+            if ( mainApp )
+            {
+                mainApp->callback();
+            }
+        } );
 }
 
 static void deinitialize()
@@ -2778,6 +2871,12 @@ static void deinitialize()
 
     mainApp.reset();
 
+    cccaster::plugin::PluginHost::instance().shutdown();
+    if ( mainFrameCallbackHandle != 0 )
+    {
+        cccaster::plugin::DetourManager::instance().remove_callback ( mainFrameCallbackHandle );
+        mainFrameCallbackHandle = 0;
+    }
     EventManager::get().release();
     TimerManager::get().deinitialize();
     SocketManager::get().deinitialize();
@@ -2806,9 +2905,13 @@ extern "C" BOOL APIENTRY DllMain ( HMODULE, DWORD reason, LPVOID )
 
             LOG ( "DLL_PROCESS_ATTACH" );
             LOG ( "gameDir='%s'", ProcessManager::gameDir );
-            
-            // Test UDP logging
-            udpLogMain("```DLL_PROCESS_ATTACH - UDP logging test");
+            std::filesystem::path pluginRoot;
+            if (!ProcessManager::gameDir.empty())
+                pluginRoot = std::filesystem::u8path(ProcessManager::gameDir);
+            else
+                pluginRoot = std::filesystem::current_path();
+            pluginRoot /= "plugins";
+            cccaster::plugin::PluginHost::instance().set_plugin_root(pluginRoot);
 
             // We want the DLL to be able to rebind any previously bound ports
             Socket::forceReusePort ( true );
@@ -2899,6 +3002,7 @@ extern "C" void callback()
             TimerManager::get().initialize();
             ControllerManager::get().windowHandle = DllHacks::windowHandle;
             ControllerManager::get().initialize ( 0 );
+            cccaster::plugin::PluginHost::instance().initialize();
 
             // Start polling now
             EventManager::get().startPolling();
@@ -2907,7 +3011,17 @@ extern "C" void callback()
 
         ASSERT ( mainApp.get() != 0 );
 
-        mainApp->callback();
+        cccaster::plugin::FrameContext frameContext{};
+        if ( mainApp )
+        {
+            frameContext.frame_number = mainApp->netMan.getIndexedFrame().value;
+            frameContext.delta_seconds = 1.0 / 60.0;
+            frameContext.is_training = mainApp->netMan.config.mode.isTraining();
+        }
+        cccaster::plugin::PluginHost::instance().poll_frame_services();
+        auto& detourManager = cccaster::plugin::DetourManager::instance();
+        detourManager.invoke_frame ( cccaster::plugin::DetourPoint::FramePre, frameContext );
+        detourManager.invoke_frame ( cccaster::plugin::DetourPoint::FramePost, frameContext );
     }
     catch ( const Exception& exc )
     {

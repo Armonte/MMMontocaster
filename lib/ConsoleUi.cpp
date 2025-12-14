@@ -375,11 +375,27 @@ ConsoleUi::ConsoleUi ( const string& title, bool isWine )
                 GetModuleHandle ( "kernel32.dll" ), "GetConsoleFontSize" ) );
 #endif
 
+    // Check if all required functions are available
+    if ( !SetConsoleFont || !GetConsoleFontInfo || !GetNumberOfConsoleFonts
+#ifdef MISSING_CONSOLE_FONT_SIZE
+         || !GetConsoleFontSize
+#endif
+       )
+    {
+        return; // Skip font setup if functions are not available
+    }
+
     // Get handle
     HANDLE handle = GetStdHandle ( STD_OUTPUT_HANDLE );
 
     // Get Number of console fonts
     DWORD numFounts = GetNumberOfConsoleFonts();
+
+    // Check if we have any fonts
+    if ( numFounts == 0 )
+    {
+        return; // No fonts available, skip setup
+    }
 
     // Setup array
     vector<CONSOLE_FONT_INFO> fonts ( numFounts );

@@ -48,6 +48,9 @@ public:
     bool save ( const std::string& folder, const std::string& charaName );
     bool load ( const std::string& folder, const std::string& charaName );
 
+    // Accessor for validation and serialization
+    const std::map<uint32_t, std::map<uint32_t, uint32_t>>& getPalettes() const { return _palettes; }
+
 #ifndef DISABLE_SERIALIZATION
     PROTOCOL_MESSAGE_BOILERPLATE ( PaletteManager, _palettes )
 #endif
