@@ -1730,6 +1730,10 @@ struct MainApp
         {
             options.set ( Options::DisablePaletteSync, 1 );
         }
+        if ( ui.getConfig().getInteger ( "stageAnimations" ) > 0 )
+        {
+            options.set ( Options::StageAnimations, 1 );
+        }
         if ( ! ProcessManager::getIsWindowed() )
         {
             ProcessManager::setIsWindowed ( true );

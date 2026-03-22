@@ -2581,8 +2581,11 @@ struct DllMain
                     // Manually control intro state
                     WRITE_ASM_HACK ( AsmHacks::hijackIntroState );
 
-                    // TODO: Implement game settings manager (settings.dat) similar to `concerto` before re-enabling this override.
-                    // *CC_STAGE_ANIMATION_OFF_ADDR = 1;
+                    // Disable stage animations
+                    if ( options[Options::StageAnimations] )
+                    {
+                        *CC_STAGE_ANIMATION_OFF_ADDR = 1;
+                    }
                 }
 
                 // Once Again behavior is now handled entirely by the plugin's SafetyHook detours.

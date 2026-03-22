@@ -1359,7 +1359,7 @@ void MainUi::settings()
                 break;
             case 12:
                 _ui->pushInFront ( new ConsoleUi::Menu ( "Experimental Options",
-                                                         { "Disable Caster Frame Limiter", "Disable Palette Sync" }, "Cancel" ),
+                                                         { "Disable Caster Frame Limiter", "Disable Stage Animations", "Disable Palette Sync" }, "Cancel" ),
                                    { 0, 0 }, true ); // Don't expand but DO clear top
                 while ( true ) {
                     _ui->popUntilUserInput();
@@ -1380,6 +1380,21 @@ void MainUi::settings()
 
                         _ui->pop();
                     } else if ( setting == 1 ) {
+                        _ui->pushInFront ( new ConsoleUi::Menu ( "Disable Stage Animations?",
+                                                                 { "Yes", "No" }, "Cancel" ),
+                                           { 0, 0 }, true ); // Don't expand but DO clear top
+
+                        _ui->top<ConsoleUi::Menu>()->setPosition ( ( _config.getInteger ( "stageAnimations" ) + 1 ) % 2 );
+                        _ui->popUntilUserInput();
+
+                        if ( _ui->top()->resultInt >= 0 && _ui->top()->resultInt <= 1 )
+                            {
+                                _config.setInteger ( "stageAnimations", ( _ui->top()->resultInt + 1 ) % 2 );
+                                saveConfig();
+                            }
+
+                        _ui->pop();
+                    } else if ( setting == 2 ) {
                         _ui->pushInFront ( new ConsoleUi::Menu ( "Disable Palette Sync?",
                                                                  { "Yes", "No" }, "Cancel" ),
                                            { 0, 0 }, true ); // Don't expand but DO clear top
@@ -1532,6 +1547,7 @@ void MainUi::initialize()
     _config.setInteger ( "autoCheckUpdates", 1 );
     _config.setInteger ( "autoReplaySave", 1 );
     _config.setInteger ( "frameLimiter", 0 );
+    _config.setInteger ( "stageAnimations", 1 );
     _config.setString ( "matchmakingRegion", "NA West" );
     _config.setDouble ( "heldStartDuration", 1.5 );
     _config.setInteger ( "updateChannel", static_cast<int>(MainUpdater::Channel::Stable ) );
