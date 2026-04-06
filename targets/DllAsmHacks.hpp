@@ -117,6 +117,39 @@
 
 #define DISABLECALL(patchAddr) { ( void *) (patchAddr), INLINE_NOP_FIVE_TIMES }
 
+void __stdcall patchMemcpy(auto dst, auto src, size_t n)
+{
+
+	static_assert(sizeof(dst) == 4, "Type must be 4 bytes");
+	static_assert(sizeof(src) == 4, "Type must be 4 bytes");
+
+	LPVOID dest = reinterpret_cast<LPVOID>(dst);
+	LPVOID source = reinterpret_cast<LPVOID>(src);
+
+	DWORD oldProtect;
+	VirtualProtect(dest, n, PAGE_EXECUTE_READWRITE, &oldProtect);
+	memcpy(dest, source, n);
+	VirtualProtect(dest, n, oldProtect, NULL);
+}
+
+void __stdcall patchByte(auto addr, const BYTE byte)
+{
+	static_assert(sizeof(addr) == 4, "Type must be 4 bytes");
+
+	BYTE temp[] = { byte };
+
+	patchMemcpy(addr, temp, 1);
+}
+
+void __stdcall patchDWORD(auto addr, const DWORD dword)
+{
+	static_assert(sizeof(addr) == 4, "Type must be 4 bytes");
+
+	DWORD temp[] = { dword };
+
+	patchMemcpy(addr, temp, 4);
+}
+
 namespace AsmHacks
 {
 namespace detail {
@@ -267,7 +300,14 @@ __attribute__((naked, noinline)) void _naked_presentFuncCaller();
 static const AsmList hookPresentCaller = { // rets taken from func 0x004bdbc0
 	PATCHJUMP(0x004bdd4a, _naked_presentFuncCaller),
 	PATCHJUMP(0x004bdd6c, _naked_presentFuncCaller),
-	PATCHJUMP(0x004bdd9d, _naked_presentFuncCaller)
+	PATCHJUMP(0x004bdd9d, _naked_presentFuncCaller),
+
+    // this shit is stupid, murder meltys internal frame counter
+    // lets the game get the frame out earlier ig
+    // but tbh with my delay being after the frame idk how often this is called
+    // i could potentially ... add a delay BEFORE the frame if the frame
+    // to keep the frame out longer and wait for packets, if the packet recv is done in another thread? it must be right?
+    PATCHJUMP(0x004bdc66, 0x004bdd03),
 };
 
 // Disable normal joystick and keyboard controls

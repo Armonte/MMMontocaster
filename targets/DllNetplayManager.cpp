@@ -23,18 +23,18 @@
 void udpLog(const char* message) {
     static SOCKET sock = INVALID_SOCKET;
     static bool sockInitialized = false;
-    
+
     if (!sockInitialized) {
         sock = socket(AF_INET, SOCK_DGRAM, 0);
         sockInitialized = true;
     }
-    
+
     if (sock != INVALID_SOCKET) {
         struct sockaddr_in addr;
         addr.sin_family = AF_INET;
         addr.sin_port = htons(17474);
         inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-        
+
         sendto(sock, message, strlen(message), 0, (struct sockaddr*)&addr, sizeof(addr));
     }
 }
@@ -47,12 +47,12 @@ void ___log(const char* msg)
 	const char* message = msg;
 	WSADATA wsaData;
 	int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
-	if (result != 0) 
+	if (result != 0)
 	{
 		return;
 	}
 	SOCKET sendSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (sendSocket == INVALID_SOCKET) 
+	if (sendSocket == INVALID_SOCKET)
 	{
 		WSACleanup();
 		return;
@@ -60,14 +60,14 @@ void ___log(const char* msg)
 	sockaddr_in destAddr;
 	destAddr.sin_family = AF_INET;
 	destAddr.sin_port = htons(port);
-	if (inet_pton(AF_INET, ipAddress, &destAddr.sin_addr) <= 0) 
+	if (inet_pton(AF_INET, ipAddress, &destAddr.sin_addr) <= 0)
 	{
 		closesocket(sendSocket);
 		WSACleanup();
 		return;
 	}
 	int sendResult = sendto(sendSocket, message, strlen(message), 0, (sockaddr*)&destAddr, sizeof(destAddr));
-	if (sendResult == SOCKET_ERROR) 
+	if (sendResult == SOCKET_ERROR)
 	{
 		closesocket(sendSocket);
 		WSACleanup();

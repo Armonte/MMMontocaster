@@ -5,6 +5,7 @@
 #include "ProcessManager.hpp"
 #include "Enum.hpp"
 #include "PluginHost/DetourManager.hpp"
+#include "Constants.hpp"
 
 #include <windows.h>
 #include <d3dx9.h>
@@ -19,9 +20,11 @@ using namespace DllOverlayUi;
 
 #define OVERLAY_FONT                    "Tahoma"
 
-#define OVERLAY_FONT_HEIGHT             ( 14 )
+#define SCALE_FACTOR ((float)(*INITIAL_SCREEN_HEIGHT) / 640.0)
 
-#define OVERLAY_FONT_WIDTH              ( 5 )
+#define OVERLAY_FONT_HEIGHT             ((int)( 14.0 * SCALE_FACTOR))
+
+#define OVERLAY_FONT_WIDTH              ((int)( 5.0 * SCALE_FACTOR))
 
 #define OVERLAY_FONT_WEIGHT             ( 600 )
 

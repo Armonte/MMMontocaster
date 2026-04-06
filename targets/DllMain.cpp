@@ -1993,6 +1993,14 @@ struct DllMain
                     DllFrameRate::enable();
                 }
 
+                // Enable/Disable stage animations
+                if ( options[Options::StageAnimations] ) // is this.. the right place to be writing this?
+                {
+                    *CC_STAGE_ANIMATION_OFF_ADDR = 1;
+                } else {
+                    *CC_STAGE_ANIMATION_OFF_ADDR = 0;
+                }
+
                 // This will log in the previous appDir folder it not the same
                 LOG ( "appDir='%s'", ProcessManager::appDir );
 
@@ -2585,11 +2593,6 @@ struct DllMain
                     // Manually control intro state
                     WRITE_ASM_HACK ( AsmHacks::hijackIntroState );
 
-                    // Disable stage animations
-                    if ( options[Options::StageAnimations] )
-                    {
-                        *CC_STAGE_ANIMATION_OFF_ADDR = 1;
-                    }
                 }
 
                 // Once Again behavior is now handled entirely by the plugin's SafetyHook detours.

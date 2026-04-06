@@ -9,6 +9,7 @@
 #include "NetplayStates.hpp"
 #include "cccaster/file.h"
 #include "cccaster/plugin.h"
+#include "MeltySettingsManager.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -982,6 +983,7 @@ void MainUi::settings()
         "Matchmaking Region",
         "Trial Input Guide Settings",
         "Experimental Settings",
+        "Time Played",
         "About",
     };
 
@@ -1360,11 +1362,18 @@ void MainUi::settings()
                 break;
             case 12:
                 _ui->pushInFront ( new ConsoleUi::Menu ( "Experimental Options",
-                                                         { "Disable Caster Frame Limiter", "Disable Stage Animations", "Disable Palette Sync" }, "Cancel" ),
+                                                         {
+                                                            "Disable Caster Frame Limiter",
+                                                            "Disable Stage Animations",
+                                                            "Disable Palette Sync",
+                                                            "Adjust BGM Volume",
+                                                            "Adjust SFX Volume",
+                                                        }, "Cancel" ),
                                    { 0, 0 }, true ); // Don't expand but DO clear top
                 while ( true ) {
                     _ui->popUntilUserInput();
                     int setting = _ui->top()->resultInt;
+
                     if ( setting == 0 ) {
                         _ui->pushInFront ( new ConsoleUi::Menu ( "Disable Caster Frame Limiter?",
                                                                  { "Yes", "No" }, "Cancel" ),
@@ -1410,6 +1419,63 @@ void MainUi::settings()
                             }
 
                         _ui->pop();
+                    } else if ( setting == 3 ) {
+                        _ui->pushInFront ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::Integer, "Enter BGM Volume (0-20)" ),
+                        { 0, 0 }, true ); // Don't expand but DO clear top
+
+                        _ui->top<ConsoleUi::Prompt>()->allowNegative = false;
+                        _ui->top<ConsoleUi::Prompt>()->maxDigits = 2;
+                        _ui->top<ConsoleUi::Prompt>()->setInitial ( _config.getInteger ( "bgmVolume" ) );
+
+                        for ( ;; )
+                        {
+                            _ui->popUntilUserInput();
+
+                            if ( _ui->top()->resultInt < 0 )
+                                break;
+
+                            if ( _ui->top()->resultInt > 20 )
+                            {
+                                _ui->pushBelow ( new ConsoleUi::TextBox ( "Volume can't be greater than 20!" ) );
+                                continue;
+                            }
+
+                            _config.setInteger ( "bgmVolume", _ui->top()->resultInt );
+                            writeBGMVolume(_ui->top()->resultInt);
+                            saveConfig();
+                            break;
+                        }
+
+                        _ui->pop();
+                    } else if ( setting == 4 ) {
+                       _ui->pushInFront ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::Integer, "Enter SFX Volume (0-20)" ),
+                        { 0, 0 }, true ); // Don't expand but DO clear top
+
+                        _ui->top<ConsoleUi::Prompt>()->allowNegative = false;
+                        _ui->top<ConsoleUi::Prompt>()->maxDigits = 2;
+                        _ui->top<ConsoleUi::Prompt>()->setInitial ( _config.getInteger ( "sfxVolume" ) );
+
+                        for ( ;; )
+                        {
+                            _ui->popUntilUserInput();
+
+                            if ( _ui->top()->resultInt < 0 )
+                                break;
+
+                            if ( _ui->top()->resultInt > 20 )
+                            {
+                                _ui->pushBelow ( new ConsoleUi::TextBox ( "Volume can't be greater than 20!" ) );
+                                continue;
+                            }
+
+                            _config.setInteger ( "sfxVolume", _ui->top()->resultInt );
+                            writeSFXVolume(_ui->top()->resultInt);
+                            saveConfig();
+                            break;
+                        }
+
+
+                        _ui->pop();
                     } else {
                         _ui->pop();
                         break;
@@ -1417,6 +1483,17 @@ void MainUi::settings()
                 }
                 break;
             case 13:
+
+                     _ui->pushInFront ( new ConsoleUi::TextBox ( format ( "Play Time: %.1f hours"
+                    
+                    "\n\nPress any key to go back", (float)_config.getInteger("timePlayed") / (60.0 * 60.0)
+                    ) ),
+                     { 0, 0 }, true);
+
+                        system ( "@pause > nul" );
+				
+                break;
+            case 14:
                 _ui->pushInFront ( new ConsoleUi::TextBox ( format ( "CCCaster %s%s\n\nRevision %s\n\nBuilt on %s\n\n"
                                    "Created by Madscientist\n\nPress any key to go back",
                                    LocalVersion.code,
@@ -1431,7 +1508,6 @@ void MainUi::settings()
                 { 0, 0 }, true ); // Don't expand but DO clear top
                 system ( "@pause > nul" );
                 break;
-
             default:
                 break;
         }
@@ -1559,6 +1635,11 @@ void MainUi::initialize()
     _config.setInteger ( "lastMainMenuPosition", -1 );
     _config.setInteger ( "lastServerMenuPosition", -1 );
     _config.setInteger ( "lastOfflineMenuPosition", -1 );
+
+    _config.setInteger("bgmVolume", 10);
+    _config.setInteger("sfxVolume", 10);
+
+    _config.setInteger("timePlayed", 0);
 
     // Load and save main config (this creates the config file on the first time)
     loadConfig();
@@ -1999,6 +2080,23 @@ bool MainUi::confirm ( const string& question )
     _ui->pop();
 
     return ret;
+}
+
+void MainUi::trackTimePlayed(bool isStart) {
+    
+    static uint32_t startTime = 0;
+
+    if(isStart) {
+        startTime = (uint32_t)time(NULL);
+        return;
+    }
+
+    uint32_t sessionLength = time(NULL) - startTime;
+
+    _config.setInteger("timePlayed", _config.getInteger("timePlayed") + sessionLength);
+
+    saveConfig();
+
 }
 
 void *MainUi::getConsoleWindow()

@@ -1,5 +1,6 @@
 VERSION = 3.1
-SUFFIX = .007
+SUBSUFFIX = -BLEEDING
+SUFFIX = .008$(SUBSUFFIX)
 NAME = cccaster
 TAG =
 BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
@@ -119,7 +120,7 @@ CC_FLAGS = -m32 $(INCLUDES) $(DEFINES) -fpermissive -Wno-class-memaccess
 CC_FLAGS += -mmmx -msse -msse2 -msse3 -mssse3
 
 # Linker flags
-LD_FLAGS = -m32 -static -lws2_32 -lpsapi -lwinpthread -lwinmm -lole32 -ldinput -lwininet -ldwmapi -lgdi32
+LD_FLAGS = -m32 -static -lws2_32 -lpsapi -lwinpthread -lwinmm -lole32 -ldinput -lwininet -ldwmapi -lgdi32 -Wl,--export-all-symbols
 LD_FLAGS += -Wl,--allow-multiple-definition
 
 # Build options
