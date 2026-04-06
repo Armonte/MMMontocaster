@@ -7,11 +7,12 @@
 #include "CharacterSelect.hpp"
 #include "StringUtils.hpp"
 #include "NetplayStates.hpp"
-#include "PluginHost/PluginHost.hpp"
 #include "cccaster/file.h"
 #include "cccaster/plugin.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <mmsystem.h>
 #include <wininet.h>
@@ -2352,551 +2353,378 @@ void MainUi::hostReady() {
     }
 }
 
+// --- Filesystem-based mod/plugin helpers (no PluginHost dependency) ---
+
+namespace {
+namespace fs = std::filesystem;
+
+static string iniGetValue ( const fs::path& path, const string& section, const string& key )
+{
+    ifstream f ( path );
+    if ( !f.is_open() ) return "";
+    bool inSection = false;
+    string line;
+    while ( getline ( f, line ) )
+    {
+        while ( !line.empty() && ( line.back() == '\r' || line.back() == ' ' || line.back() == '\t' ) )
+            line.pop_back();
+        if ( line.empty() || line[0] == ';' || line[0] == '#' ) continue;
+        if ( line.front() == '[' && line.back() == ']' )
+        {
+            inSection = ( line.substr ( 1, line.size() - 2 ) == section );
+            continue;
+        }
+        if ( inSection )
+        {
+            auto eq = line.find ( '=' );
+            if ( eq != string::npos && line.substr ( 0, eq ) == key )
+                return line.substr ( eq + 1 );
+        }
+    }
+    return "";
+}
+
+static bool iniSetValue ( const fs::path& path, const string& section, const string& key, const string& value )
+{
+    ifstream f ( path );
+    vector<string> lines;
+    if ( f.is_open() )
+    {
+        string line;
+        while ( getline ( f, line ) )
+        {
+            while ( !line.empty() && line.back() == '\r' ) line.pop_back();
+            lines.push_back ( line );
+        }
+        f.close();
+    }
+    bool inSection = false, replaced = false;
+    string sectionHeader = "[" + section + "]";
+    for ( size_t i = 0; i < lines.size(); ++i )
+    {
+        string& l = lines[i];
+        string t = l;
+        while ( !t.empty() && ( t.front() == ' ' || t.front() == '\t' ) ) t.erase ( t.begin() );
+        if ( !t.empty() && t.front() == '[' && t.back() == ']' )
+        {
+            if ( inSection && !replaced ) { lines.insert ( lines.begin() + i, key + "=" + value ); replaced = true; break; }
+            inSection = ( t == sectionHeader );
+            continue;
+        }
+        if ( inSection && !replaced )
+        {
+            auto eq = t.find ( '=' );
+            if ( eq != string::npos && t.substr ( 0, eq ) == key ) { l = key + "=" + value; replaced = true; }
+        }
+    }
+    if ( !replaced && inSection ) lines.push_back ( key + "=" + value );
+    ofstream out ( path );
+    if ( !out.is_open() ) return false;
+    for ( const auto& l : lines ) out << l << "\n";
+    return true;
+}
+
+static string tomlGetValue ( const fs::path& path, const string& key )
+{
+    ifstream f ( path );
+    if ( !f.is_open() ) return "";
+    string line;
+    while ( getline ( f, line ) )
+    {
+        while ( !line.empty() && ( line.back() == '\r' || line.back() == ' ' || line.back() == '\t' ) )
+            line.pop_back();
+        if ( line.empty() || line[0] == '#' || line[0] == '[' ) continue;
+        auto eq = line.find ( '=' );
+        if ( eq == string::npos ) continue;
+        string k = line.substr ( 0, eq );
+        while ( !k.empty() && ( k.back() == ' ' || k.back() == '\t' ) ) k.pop_back();
+        if ( k != key ) continue;
+        string v = line.substr ( eq + 1 );
+        while ( !v.empty() && ( v.front() == ' ' || v.front() == '\t' ) ) v.erase ( v.begin() );
+        if ( v.size() >= 2 && v.front() == '"' && v.back() == '"' ) v = v.substr ( 1, v.size() - 2 );
+        return v;
+    }
+    return "";
+}
+
+struct ModEntry {
+    string name, version, author, description;
+    bool enabled;
+    int priority;
+    fs::path dir_path;
+};
+
+static vector<ModEntry> scanMods()
+{
+    vector<ModEntry> result;
+    fs::path modsDir = fs::current_path() / "mods";
+    error_code ec;
+    if ( !fs::exists ( modsDir, ec ) ) return result;
+    for ( const auto& entry : fs::directory_iterator ( modsDir, ec ) )
+    {
+        if ( !entry.is_directory() ) continue;
+        fs::path ini = entry.path() / "mod.ini";
+        if ( !fs::exists ( ini ) ) continue;
+        ModEntry mod;
+        mod.name = iniGetValue ( ini, "Mod", "name" );
+        if ( mod.name.empty() ) mod.name = entry.path().filename().string();
+        mod.version = iniGetValue ( ini, "Mod", "version" );
+        mod.author = iniGetValue ( ini, "Mod", "author" );
+        mod.description = iniGetValue ( ini, "Mod", "description" );
+        string en = iniGetValue ( ini, "Config", "enabled" );
+        mod.enabled = ( en == "1" || en == "true" );
+        string pri = iniGetValue ( ini, "Config", "priority" );
+        mod.priority = pri.empty() ? 0 : atoi ( pri.c_str() );
+        mod.dir_path = entry.path();
+        result.push_back ( mod );
+    }
+    return result;
+}
+
+struct PluginEntry {
+    string id, name, version, description;
+    bool enabled;
+    fs::path dir_path;
+};
+
+static vector<PluginEntry> scanPlugins()
+{
+    vector<PluginEntry> result;
+    fs::path pluginsDir = fs::current_path() / "plugins";
+    error_code ec;
+    if ( !fs::exists ( pluginsDir, ec ) ) return result;
+    for ( const auto& entry : fs::directory_iterator ( pluginsDir, ec ) )
+    {
+        if ( !entry.is_directory() ) continue;
+        fs::path toml = entry.path() / "plugin.toml";
+        if ( !fs::exists ( toml ) ) continue;
+        PluginEntry plug;
+        plug.id = tomlGetValue ( toml, "id" );
+        if ( plug.id.empty() ) plug.id = entry.path().filename().string();
+        plug.name = tomlGetValue ( toml, "name" );
+        if ( plug.name.empty() ) plug.name = plug.id;
+        plug.version = tomlGetValue ( toml, "version" );
+        plug.description = tomlGetValue ( toml, "description" );
+        string en = tomlGetValue ( toml, "enabled" );
+        plug.enabled = ( en == "true" || en == "1" );
+        plug.dir_path = entry.path();
+        result.push_back ( plug );
+    }
+    return result;
+}
+
+} // anonymous namespace
+
 void MainUi::mods()
 {
-    const vector<string> options =
-    {
-        "List Mods",
-        "Enable Mod",
-        "Disable Mod",
-        "Set Mod Priority",
-        "Mod Info",
-        "Announcer Voice Set",
-    };
-
-    _ui->pushRight ( new ConsoleUi::Menu ( "Mods", options, "Back" ) );
+    int lastPos = 0;
 
     for ( ;; )
     {
-        int selection = _ui->popUntilUserInput()->resultInt;
+        auto mods = scanMods();
 
-        if ( selection < 0 || selection >= ( int ) options.size() )
+        if ( mods.empty() )
         {
+            _ui->pushRight ( new ConsoleUi::TextBox ( "No mods found in .\\mods\\" ) );
+            _ui->popUntilUserInput();
             _ui->pop();
+            return;
+        }
+
+        // Sort by priority descending (higher priority first)
+        sort ( mods.begin(), mods.end(), [] ( const ModEntry& a, const ModEntry& b ) {
+            return a.priority > b.priority;
+        } );
+
+        // Build menu: [X] Name  vX.X  (pri: N)
+        vector<string> items;
+        for ( const auto& mod : mods )
+        {
+            items.push_back ( format ( "[%s] %-16s v%-6s pri:%d",
+                                      mod.enabled ? "X" : " ",
+                                      mod.name, mod.version, mod.priority ) );
+        }
+
+        auto* menu = new ConsoleUi::Menu ( "Mods (select to edit)", items, "Back" );
+        if ( lastPos >= 0 && lastPos < ( int ) mods.size() )
+            menu->setPosition ( lastPos );
+        _ui->pushRight ( menu );
+        int sel = _ui->popUntilUserInput()->resultInt;
+        _ui->pop();
+
+        if ( sel < 0 || sel >= ( int ) mods.size() )
+            break;
+
+        lastPos = sel;
+        const auto& mod = mods[sel];
+        fs::path ini = mod.dir_path / "mod.ini";
+
+        // Sub-menu for selected mod
+        for ( ;; )
+        {
+            // Re-read to show current state
+            string en = iniGetValue ( ini, "Config", "enabled" );
+            bool curEnabled = ( en == "1" || en == "true" );
+            string pri = iniGetValue ( ini, "Config", "priority" );
+            int curPri = pri.empty() ? 0 : atoi ( pri.c_str() );
+
+            vector<string> actions = {
+                format ( "%s", curEnabled ? "Disable" : "Enable" ),
+                "Move Up",
+                "Move Down",
+                "Info",
+            };
+
+            string title = format ( "%s  [%s]  pri:%d", mod.name, curEnabled ? "ON" : "OFF", curPri );
+            _ui->pushRight ( new ConsoleUi::Menu ( title, actions, "Back" ) );
+            int act = _ui->popUntilUserInput()->resultInt;
+            _ui->pop();
+
+            if ( act < 0 || act >= ( int ) actions.size() )
+                break;
+
+            switch ( act )
+            {
+                case 0: // Toggle enable
+                    iniSetValue ( ini, "Config", "enabled", curEnabled ? "0" : "1" );
+                    break;
+
+                case 1: // Move up
+                    iniSetValue ( ini, "Config", "priority", to_string ( curPri + 1 ) );
+                    break;
+
+                case 2: // Move down
+                    iniSetValue ( ini, "Config", "priority", to_string ( curPri - 1 ) );
+                    break;
+
+                case 3: // Info
+                {
+                    string text = format ( "Mod: %s\n\n", mod.name );
+                    text += format ( "Version: %s\n", mod.version );
+                    text += format ( "Author: %s\n", mod.author );
+                    text += format ( "Description: %s\n", mod.description );
+                    text += format ( "Path: %s\n", mod.dir_path.string() );
+                    text += format ( "Enabled: %s\n", curEnabled ? "Yes" : "No" );
+                    text += format ( "Priority: %d\n", curPri );
+                    _ui->pushRight ( new ConsoleUi::TextBox ( text ) );
+                    _ui->popUntilUserInput();
+                    _ui->pop();
+                    break;
+                }
+            }
+        }
+    }
+}
+
+static void togglePluginEnabled ( const fs::path& tomlPath, bool currentlyEnabled )
+{
+    ifstream fin ( tomlPath );
+    vector<string> lines;
+    if ( fin.is_open() )
+    {
+        string line;
+        while ( getline ( fin, line ) )
+        {
+            while ( !line.empty() && line.back() == '\r' ) line.pop_back();
+            lines.push_back ( line );
+        }
+        fin.close();
+    }
+    for ( auto& l : lines )
+    {
+        string t = l;
+        while ( !t.empty() && ( t.front() == ' ' || t.front() == '\t' ) ) t.erase ( t.begin() );
+        if ( t.find ( "enabled" ) == 0 && t.find ( '=' ) != string::npos )
+        {
+            l = "enabled = " + string ( currentlyEnabled ? "false" : "true" );
             break;
         }
-
-        _ui->clearBelow();
-
-        switch ( selection )
-        {
-            case 0:
-                listMods();
-                break;
-
-            case 1:
-                enableMod();
-                break;
-
-            case 2:
-                disableMod();
-                break;
-
-            case 3:
-                setModPriority();
-                break;
-
-            case 4:
-                showModInfo();
-                break;
-
-            case 5:
-                selectAnnouncerVoiceSet();
-                break;
-
-            default:
-                break;
-        }
-
-        if ( selection != 0 ) // Already handled for case 0
-            _ui->popNonUserInput();
     }
+    ofstream fout ( tomlPath );
+    if ( fout.is_open() )
+        for ( const auto& l : lines ) fout << l << "\n";
 }
 
 void MainUi::plugins()
 {
-    const vector<string> options =
-    {
-        "List Plugins",
-        "Plugin Info",
-    };
-
-    _ui->pushRight ( new ConsoleUi::Menu ( "Plugins", options, "Back" ) );
+    int lastPos = 0;
 
     for ( ;; )
     {
-        int selection = _ui->popUntilUserInput()->resultInt;
+        auto plugs = scanPlugins();
 
-        if ( selection < 0 || selection >= ( int ) options.size() )
+        if ( plugs.empty() )
         {
+            _ui->pushRight ( new ConsoleUi::TextBox ( "No plugins found in .\\plugins\\" ) );
+            _ui->popUntilUserInput();
             _ui->pop();
-            break;
-        }
-
-        _ui->clearBelow();
-
-        switch ( selection )
-        {
-            case 0:
-                listPlugins();
-                break;
-
-            case 1:
-                showPluginInfo();
-                break;
-
-            default:
-                break;
-        }
-
-        if ( selection != 0 ) // Already handled for case 0
-            _ui->popNonUserInput();
-    }
-}
-
-void MainUi::listMods()
-{
-    try
-    {
-        LOG ( "listMods() called" );
-        auto& plugin_host = cccaster::plugin::PluginHost::instance();
-        
-        if ( !plugin_host.is_initialized() )
-        {
-            LOG ( "Plugin system not initialized" );
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Plugin system not initialized" ), { 1, 0 } );
-            return;
-        }
-        
-        auto& mod_plugin = plugin_host.mod_manager_plugin();
-
-        if ( !mod_plugin.is_initialized() )
-        {
-            LOG ( "Mod system not initialized" );
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
             return;
         }
 
-        LOG ( "Getting mod list..." );
-        auto mods = mod_plugin.get_mod_list();
-        LOG ( "Got %zu mod(s)", mods.size() );
-
-        if ( mods.empty() )
+        vector<string> items;
+        for ( const auto& plug : plugs )
         {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "No mods found" ), { 1, 0 } );
-            return;
+            items.push_back ( format ( "[%s] %-18s v%s",
+                                      plug.enabled ? "X" : " ",
+                                      plug.name, plug.version ) );
         }
 
-        string text = "Mods:\n\n";
-        for ( const auto& mod : mods )
-        {
-            text += format ( "%-20s v%-10s %-8s Priority: %3d\n",
-                           mod.name, mod.version,
-                           mod.enabled ? "ENABLED" : "DISABLED",
-                           mod.priority );
-        }
-
-        _ui->pushBelow ( new ConsoleUi::TextBox ( text ), { 1, 0 } );
-        _ui->popUntilUserInput();
-    }
-    catch ( const exception& e )
-    {
-        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error listing mods: %s", e.what() ) ), { 1, 0 } );
-        _ui->popUntilUserInput();
-    }
-    catch ( ... )
-    {
-        _ui->pushBelow ( new ConsoleUi::TextBox ( "Unknown error listing mods" ), { 1, 0 } );
-        _ui->popUntilUserInput();
-    }
-}
-
-void MainUi::enableMod()
-{
-    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter mod name:" ), { 1, 0 } );
-    _ui->popUntilUserInput();
-
-    string mod_name = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
-    _ui->pop();
-
-    if ( mod_name.empty() )
-        return;
-
-    try
-    {
-        auto& plugin_host = cccaster::plugin::PluginHost::instance();
-        auto& mod_plugin = plugin_host.mod_manager_plugin();
-
-        if ( !mod_plugin.is_initialized() )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
-            return;
-        }
-
-        if ( mod_plugin.set_mod_enabled ( mod_name.c_str(), true ) )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Mod '%s' enabled", mod_name.c_str() ) ), { 1, 0 } );
-        }
-        else
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Failed to enable mod '%s' (mod not found?)", mod_name.c_str() ) ), { 1, 0 } );
-        }
-    }
-    catch ( const exception& e )
-    {
-        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
-    }
-}
-
-void MainUi::disableMod()
-{
-    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter mod name:" ), { 1, 0 } );
-    _ui->popUntilUserInput();
-
-    string mod_name = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
-    _ui->pop();
-
-    if ( mod_name.empty() )
-        return;
-
-    try
-    {
-        auto& plugin_host = cccaster::plugin::PluginHost::instance();
-        auto& mod_plugin = plugin_host.mod_manager_plugin();
-
-        if ( !mod_plugin.is_initialized() )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
-            return;
-        }
-
-        if ( mod_plugin.set_mod_enabled ( mod_name.c_str(), false ) )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Mod '%s' disabled", mod_name.c_str() ) ), { 1, 0 } );
-        }
-        else
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Failed to disable mod '%s' (mod not found?)", mod_name.c_str() ) ), { 1, 0 } );
-        }
-    }
-    catch ( const exception& e )
-    {
-        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
-    }
-}
-
-void MainUi::setModPriority()
-{
-    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter mod name:" ), { 1, 0 } );
-    _ui->popUntilUserInput();
-
-    string mod_name = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
-    _ui->pop();
-
-    if ( mod_name.empty() )
-        return;
-
-    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::Integer, "Enter priority (higher = loaded first):" ), { 1, 0 } );
-    _ui->top<ConsoleUi::Prompt>()->allowNegative = true;
-    _ui->popUntilUserInput();
-
-    int priority = _ui->top<ConsoleUi::Prompt>()->resultInt;
-    _ui->pop();
-
-    try
-    {
-        auto& plugin_host = cccaster::plugin::PluginHost::instance();
-        auto& mod_plugin = plugin_host.mod_manager_plugin();
-
-        if ( !mod_plugin.is_initialized() )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
-            return;
-        }
-
-        if ( mod_plugin.set_mod_priority ( mod_name.c_str(), priority ) )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Mod '%s' priority set to %d", mod_name.c_str(), priority ) ), { 1, 0 } );
-        }
-        else
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Failed to set priority for mod '%s' (mod not found?)", mod_name.c_str() ) ), { 1, 0 } );
-        }
-    }
-    catch ( const exception& e )
-    {
-        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
-    }
-}
-
-void MainUi::showModInfo()
-{
-    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter mod name:" ), { 1, 0 } );
-    _ui->popUntilUserInput();
-
-    string mod_name = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
-    _ui->pop();
-
-    if ( mod_name.empty() )
-        return;
-
-    try
-    {
-        auto& plugin_host = cccaster::plugin::PluginHost::instance();
-        auto& mod_plugin = plugin_host.mod_manager_plugin();
-
-        if ( !mod_plugin.is_initialized() )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
-            return;
-        }
-
-        ::ModInfo info;
-        if ( mod_plugin.get_mod_info ( mod_name.c_str(), &info ) )
-        {
-            string text = format ( "Mod Info: %s\n\n", mod_name.c_str() );
-            text += format ( "Version: %s\n", info.version );
-            text += format ( "Author: %s\n", info.author );
-            text += format ( "Description: %s\n", info.description );
-            text += format ( "Path: %s\n", info.mod_path );
-            text += format ( "Enabled: %s\n", info.enabled ? "Yes" : "No" );
-            text += format ( "Priority: %d\n", info.priority );
-            text += format ( "Load Order: %d\n", info.load_order );
-
-            _ui->pushBelow ( new ConsoleUi::TextBox ( text ), { 1, 0 } );
-        }
-        else
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Mod '%s' not found", mod_name.c_str() ) ), { 1, 0 } );
-        }
-    }
-    catch ( const exception& e )
-    {
-        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
-    }
-}
-
-void MainUi::selectAnnouncerVoiceSet()
-{
-    try
-    {
-        auto& plugin_host = cccaster::plugin::PluginHost::instance();
-        auto& mod_plugin = plugin_host.mod_manager_plugin();
-
-        if ( !mod_plugin.is_initialized() )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Mod system not initialized" ), { 1, 0 } );
-            return;
-        }
-
-        // Get available voice sets
-        auto voice_sets = mod_plugin.get_available_voice_sets();
-
-        if ( voice_sets.empty() )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "No voice sets found in .\\sound\\voices\\" ), { 1, 0 } );
-            return;
-        }
-
-        // Display available voice sets
-        string text = "Available Voice Sets:\n\n";
-        for ( size_t i = 0; i < voice_sets.size(); ++i )
-        {
-            text += format ( "[%zu] %s\n", i + 1, voice_sets[i].c_str() );
-        }
-        text += "\nEnter voice set name (or number):";
-
-        _ui->pushBelow ( new ConsoleUi::TextBox ( text ), { 1, 0 } );
-
-        // Get current selection
-        string current_set = mod_plugin.get_selected_voice_set();
-        if ( !current_set.empty() )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Current: %s", current_set.c_str() ) ), { 1, 0 } );
-        }
-
-        // Prompt for voice set selection
-        _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter voice set name or number:" ), { 1, 0 } );
-        _ui->popUntilUserInput();
-
-        string input = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
+        auto* menu = new ConsoleUi::Menu ( "Plugins (select to edit)", items, "Back" );
+        if ( lastPos >= 0 && lastPos < ( int ) plugs.size() )
+            menu->setPosition ( lastPos );
+        _ui->pushRight ( menu );
+        int sel = _ui->popUntilUserInput()->resultInt;
         _ui->pop();
 
-        if ( input.empty() )
-        {
-            return;
-        }
+        if ( sel < 0 || sel >= ( int ) plugs.size() )
+            break;
 
-        // Check if input is a number
-        string selected_set;
-        try
+        lastPos = sel;
+        const auto& plug = plugs[sel];
+        fs::path toml = plug.dir_path / "plugin.toml";
+
+        // Sub-menu for selected plugin
+        for ( ;; )
         {
-            int index = lexical_cast<int> ( input, -1 );
-            if ( index > 0 && index <= ( int ) voice_sets.size() )
+            string en = tomlGetValue ( toml, "enabled" );
+            bool curEnabled = ( en == "true" || en == "1" );
+
+            vector<string> actions = {
+                format ( "%s", curEnabled ? "Disable" : "Enable" ),
+                "Info",
+            };
+
+            string title = format ( "%s  [%s]", plug.name, curEnabled ? "ON" : "OFF" );
+            _ui->pushRight ( new ConsoleUi::Menu ( title, actions, "Back" ) );
+            int act = _ui->popUntilUserInput()->resultInt;
+            _ui->pop();
+
+            if ( act < 0 || act >= ( int ) actions.size() )
+                break;
+
+            switch ( act )
             {
-                selected_set = voice_sets[index - 1];
-            }
-            else
-            {
-                selected_set = input;
-            }
-        }
-        catch ( ... )
-        {
-            selected_set = input;
-        }
+                case 0: // Toggle
+                    togglePluginEnabled ( toml, curEnabled );
+                    break;
 
-        // Set the voice set
-        if ( mod_plugin.set_selected_voice_set ( selected_set.c_str() ) )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Voice set set to: %s", selected_set.c_str() ) ), { 1, 0 } );
-        }
-        else
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Failed to set voice set '%s' (not found?)", selected_set.c_str() ) ), { 1, 0 } );
-        }
-    }
-    catch ( const exception& e )
-    {
-        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
-    }
-}
-
-void MainUi::listPlugins()
-{
-    try
-    {
-        LOG ( "listPlugins() called" );
-        auto& plugin_host = cccaster::plugin::PluginHost::instance();
-
-        if ( !plugin_host.is_initialized() )
-        {
-            LOG ( "Plugin system not initialized" );
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Plugin system not initialized" ), { 1, 0 } );
-            return;
-        }
-
-        // Access PluginAPI through PluginHost
-        const PluginAPI* plugin_api = plugin_host.plugin_api();
-        LOG ( "Got plugin API: %p", plugin_api );
-        
-        if ( !plugin_api || !plugin_api->list_plugins )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Plugin API not available" ), { 1, 0 } );
-            return;
-        }
-
-        PluginInfo plugins[256];
-        size_t count = 0;
-        
-        LOG ( "Calling plugin_api->list_plugins..." );
-        if ( plugin_api->list_plugins ( plugins, 256, &count ) )
-        {
-            LOG ( "list_plugins returned %zu plugins", count );
-            if ( count == 0 )
-            {
-                LOG ( "No plugins found" );
-                _ui->pushBelow ( new ConsoleUi::TextBox ( "No plugins found" ), { 1, 0 } );
-                return;
-            }
-
-            string text = "Plugins:\n\n";
-            for ( size_t i = 0; i < count; ++i )
-            {
-                const auto& plugin = plugins[i];
-                text += format ( "%-20s v%-10s %-8s %-8s\n",
-                               plugin.id,
-                               plugin.version,
-                               plugin.loaded ? "LOADED" : "NOT LOADED",
-                               plugin.enabled ? "ENABLED" : "DISABLED" );
-                if ( !string(plugin.description).empty() )
+                case 1: // Info
                 {
-                    text += format ( "  %s\n", plugin.description );
+                    string text = format ( "Plugin: %s\n\n", plug.name );
+                    text += format ( "ID: %s\n", plug.id );
+                    text += format ( "Version: %s\n", plug.version );
+                    text += format ( "Description: %s\n", plug.description );
+                    text += format ( "Path: %s\n", plug.dir_path.string() );
+                    text += format ( "Enabled: %s\n", curEnabled ? "Yes" : "No" );
+                    _ui->pushRight ( new ConsoleUi::TextBox ( text ) );
+                    _ui->popUntilUserInput();
+                    _ui->pop();
+                    break;
                 }
             }
-
-            _ui->pushBelow ( new ConsoleUi::TextBox ( text ), { 1, 0 } );
-            _ui->popUntilUserInput();
         }
-        else
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Failed to list plugins" ), { 1, 0 } );
-            _ui->popUntilUserInput();
-        }
-    }
-    catch ( const exception& e )
-    {
-        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
-        _ui->popUntilUserInput();
     }
 }
 
-void MainUi::showPluginInfo()
-{
-    _ui->pushBelow ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String, "Enter plugin ID:" ), { 1, 0 } );
-    _ui->popUntilUserInput();
 
-    string plugin_id = trimmed ( _ui->top<ConsoleUi::Prompt>()->resultStr );
-    _ui->pop();
-
-    if ( plugin_id.empty() )
-        return;
-
-    try
-    {
-        auto& plugin_host = cccaster::plugin::PluginHost::instance();
-
-        if ( !plugin_host.is_initialized() )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Plugin system not initialized" ), { 1, 0 } );
-            return;
-        }
-
-        // Access PluginAPI through PluginHost
-        const PluginAPI* plugin_api = plugin_host.plugin_api();
-        
-        if ( !plugin_api || !plugin_api->get_plugin_info )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( "Plugin API not available" ), { 1, 0 } );
-            return;
-        }
-
-        PluginInfo info;
-        if ( plugin_api->get_plugin_info ( plugin_id.c_str(), &info ) )
-        {
-            string text = format ( "Plugin Info: %s\n\n", plugin_id.c_str() );
-            text += format ( "Name: %s\n", info.name );
-            text += format ( "Version: %s\n", info.version );
-            text += format ( "Description: %s\n", info.description );
-            text += format ( "API Version: %s\n", info.api_version );
-            text += format ( "Enabled: %s\n", info.enabled ? "Yes" : "No" );
-            text += format ( "Loaded: %s\n", info.loaded ? "Yes" : "No" );
-            
-            const char* result_str = "Unknown";
-            switch ( info.last_result )
-            {
-                case PLUGIN_RESULT_OK:
-                    result_str = "OK";
-                    break;
-                case PLUGIN_RESULT_ERROR:
-                    result_str = "Error";
-                    break;
-                case PLUGIN_RESULT_UNSUPPORTED:
-                    result_str = "Unsupported";
-                    break;
-            }
-            text += format ( "Last Result: %s\n", result_str );
-
-            _ui->pushBelow ( new ConsoleUi::TextBox ( text ), { 1, 0 } );
-        }
-        else
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Plugin '%s' not found", plugin_id.c_str() ) ), { 1, 0 } );
-        }
-    }
-    catch ( const exception& e )
-    {
-        _ui->pushBelow ( new ConsoleUi::TextBox ( format ( "Error: %s", e.what() ) ), { 1, 0 } );
-    }
-}
 

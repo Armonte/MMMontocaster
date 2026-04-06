@@ -160,16 +160,4 @@ private:
     void setMode( MatchmakingManager* lobby, std::string mode );
     void unlock( MatchmakingManager* lobby );
 
-    // Mod management helpers
-    void listMods();
-    void enableMod();
-    void disableMod();
-    void setModPriority();
-    void showModInfo();
-    void selectAnnouncerVoiceSet();
-    
-    // Plugin management helpers
-    void listPlugins();
-    void showPluginInfo();
-
 };

@@ -282,14 +282,6 @@ void PluginHost::shutdown() {
 }
 
 bool PluginHost::is_initialized() const {
-    // Lazy initialization: if not initialized yet, try to initialize now
-    // This handles the case where the callback() hasn't been called yet
-    if (!initialized_) {
-        LOG ( "[PluginHost] is_initialized() called but not initialized, attempting lazy initialization" );
-        // Remove const to allow initialization
-        // This is safe because we're checking initialized_ first
-        const_cast<PluginHost*>(this)->initialize();
-    }
     return initialized_;
 }
 

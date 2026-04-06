@@ -3,6 +3,8 @@
 #include "../3rdparty/imgui/imgui.h"
 
 #include <cstring>
+#include <string>
+#include <cstdint>
 
 #if defined(__has_include)
 #if __has_include(<windows.h>)

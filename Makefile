@@ -45,16 +45,19 @@ DLL_CPP_SRCS = $(wildcard targets/Dll*.cpp) $(wildcard targets/PluginHost/*.cpp)
 
 PLUGIN_CPP_SRCS_REPLAY = $(wildcard plugins/replay-takeover/*.cpp)
 PLUGIN_CPP_SRCS_HUD = $(wildcard plugins/hud-theme/*.cpp)
+PLUGIN_CPP_SRCS_WIDESCREEN = $(wildcard plugins/widescreen/*.cpp)
 # PLUGIN_CPP_SRCS_ONCE_AGAIN = $(wildcard plugins/once-again/*.cpp)  # Disabled for now
 PLUGIN_OBJECTS_REPLAY = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_REPLAY:.cpp=.o))
 PLUGIN_OBJECTS_HUD = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_HUD:.cpp=.o))
+PLUGIN_OBJECTS_WIDESCREEN = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_WIDESCREEN:.cpp=.o))
 # PLUGIN_OBJECTS_ONCE_AGAIN = $(addprefix $(BUILD_PREFIX)/,$(PLUGIN_CPP_SRCS_ONCE_AGAIN:.cpp=.o))  # Disabled for now
 PLUGIN_DLL_REPLAY = plugins/replay-takeover/replay_takeover.dll
 PLUGIN_DLL_HUD = plugins/hud-theme/hud_theme.dll
+PLUGIN_DLL_WIDESCREEN = plugins/widescreen/widescreen.dll
 # PLUGIN_DLL_ONCE_AGAIN = plugins/once-again/once_again.dll  # Disabled for now
 # Re-enabled: once-again is now a pure plugin (no DLL hooks)
 # Disabled once-again plugin for now
-PLUGIN_DLLS = $(PLUGIN_DLL_REPLAY) $(PLUGIN_DLL_HUD)
+PLUGIN_DLLS = $(PLUGIN_DLL_REPLAY) $(PLUGIN_DLL_HUD) $(PLUGIN_DLL_WIDESCREEN)
 
 NON_GEN_SRCS = \
 	$(wildcard netplay/*.cpp tools/*.cpp targets/*.cpp targets/PluginHost/*.cpp targets/PluginHost/Services/*.cpp targets/ModManager/*.cpp lib/*.cpp tests/*.cpp sequences/*.cpp)
@@ -201,6 +204,12 @@ $(PLUGIN_DLL_REPLAY): $(PLUGIN_OBJECTS_REPLAY)
 
 $(PLUGIN_DLL_HUD): $(PLUGIN_OBJECTS_HUD)
 	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2b -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9
+	@echo
+	$(STRIP) $@
+	@echo
+
+$(PLUGIN_DLL_WIDESCREEN): $(PLUGIN_OBJECTS_WIDESCREEN)
+	$(CXX) -o $@ $(CC_FLAGS) -Wall -std=c++2b -fconcepts $^ -shared $(LD_FLAGS) -ld3dx9 -ld3d9
 	@echo
 	$(STRIP) $@
 	@echo

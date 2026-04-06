@@ -595,6 +595,10 @@ static const AsmList disableHealthBars =
 // Disable the scroll lock autoscreenshot
 static const Asm disableScreenshot = { ( void * ) 0x432Cf9, INLINE_NOP_FIVE_TIMES }; // takeScreenshot->nop
 
+// Prevent Game_ApplySettingsToGlobals from zeroing the win count (dword_557D2C) in netplay VS mode.
+// The game hard-codes this to 0 for gMenuState==0x1010, which breaks win counting beyond 2 rounds.
+static const Asm disableVsWinCountReset = { ( void * ) 0x4488BC, INLINE_NOP_FIVE_TIMES };
+
 extern "C" void addExtraDrawCallsCb();
 
 static const AsmList addExtraDraws =

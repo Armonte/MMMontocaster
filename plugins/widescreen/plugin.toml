@@ -1,0 +1,14 @@
+name = "Widescreen Sidebars"
+id = "widescreen"
+version = "0.2.0"
+description = "Steam-style character portrait sidebars for 16:9 widescreen mode."
+api = "0.1.0"
+enabled = true
+
+[entry]
+library = "widescreen.dll"
+symbol = "PluginEntry"
+
+[hooks]
+frame = true
+render = true

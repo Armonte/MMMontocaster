@@ -2,9 +2,7 @@
 // cpplint: disable=build/include_what_you_use
 #include "DllOverlayUi.hpp"
 #include "PluginHost/DetourManager.hpp"
-#ifdef LOGGING
 #include "../lib/Logger.hpp"  // NOLINT(build/include) IWYU pragma: keep
-#endif
 
 #ifdef _WIN32
 #include <windows.h>
