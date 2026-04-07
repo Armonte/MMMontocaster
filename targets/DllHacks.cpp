@@ -60,10 +60,7 @@ void initializePreLoad()
     WRITE_ASM_HACK ( hijackEscapeKey );
     WRITE_ASM_HACK ( disableTrainingMusicReset );
     WRITE_ASM_HACK ( fixBossStageSuperFlashOverlay );
-    // NOTE: disableScreenshot from upstream is WRONG — 0x432Cf9 is LoadResourceFromPack, not screenshot.
-    // NOPing it breaks D3D asset loading and causes "Failed to create Direct3D device".
-    // WRITE_ASM_HACK ( disableScreenshot );
-    WRITE_ASM_HACK ( disableVsWinCountReset );
+    WRITE_ASM_HACK ( disableScreenshot );
 
     // TODO color hijack is temporary disabled due to some issues
     //

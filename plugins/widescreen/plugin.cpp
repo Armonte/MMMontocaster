@@ -34,6 +34,15 @@ static constexpr uintptr_t ADDR_P2_CHARACTER = 0x74D920;
 static constexpr uintptr_t ADDR_P1_COLOR = 0x74D904;
 static constexpr uintptr_t ADDR_P2_COLOR = 0x74D928;
 
+// gGameSettings[94] — runtime aspect mode. Setting this to 3 (16:9) makes
+// the game's own Scene_DrawHudWithPostProcessing center the 640x480 blit
+// with pillarbox bars, exactly like the Steam version.
+static constexpr uintptr_t ADDR_GAME_SETTINGS = 0x554140;
+static constexpr uintptr_t ADDR_ASPECT_MODE = ADDR_GAME_SETTINGS + 94 * 4; // gGameSettings[94]
+
+// g_render_state pointer — the game reads backbuffer dimensions from offsets +0x28 and +0x2C
+static constexpr uintptr_t ADDR_RENDER_STATE_PTR = 0x767448;
+
 class WidescreenPlugin {
 public:
     static WidescreenPlugin& instance() {
@@ -72,6 +81,18 @@ public:
 
         textures_.set_asset_path(asset_dir.string());
 
+        // Eagerly load default textures using the D3D device from game memory.
+        // The device is already created by the time plugins load.
+        static constexpr uintptr_t ADDR_D3D_DEVICE = 0x76E7D4;
+        IDirect3DDevice9* device = nullptr;
+        host->memory->read(reinterpret_cast<const void*>(ADDR_D3D_DEVICE), &device, sizeof(device));
+        if (device) {
+            renderer_.initialize(device);
+            textures_.load_defaults(device);
+            defaults_loaded_ = true;
+            log_info("Default sidebar textures loaded eagerly.");
+        }
+
         // Register frame callback for character tracking
         if (host_->hooks) {
             host_->hooks->register_frame(
@@ -105,6 +126,12 @@ private:
 
     void on_frame(const FrameContext*) {
         if (!host_ || !host_->memory) return;
+
+        // Force 16:9 aspect mode so the game centers its 640x480 blit
+        // with pillarbox bars. The game's own code handles all the math.
+        uint32_t aspect_mode = 3; // 3 = 16:9
+        host_->memory->write(reinterpret_cast<void*>(ADDR_ASPECT_MODE), &aspect_mode, sizeof(aspect_mode));
+        aspect_mode_written_ = aspect_mode;
 
         uint32_t game_mode = 0;
         host_->memory->read(reinterpret_cast<const void*>(ADDR_GAME_MODE), &game_mode, sizeof(game_mode));
@@ -159,14 +186,44 @@ private:
         }
 
         auto* device = static_cast<IDirect3DDevice9*>(ctx->device);
-        uint32_t vp_w = ctx->viewport_width;
-        uint32_t vp_h = ctx->viewport_height;
+
+        // Read the game's actual backbuffer dimensions from g_render_state,
+        // exactly what Scene_DrawHudWithPostProcessing uses for its pillarbox math.
+        uint32_t render_state_ptr = 0;
+        host_->memory->read(reinterpret_cast<const void*>(ADDR_RENDER_STATE_PTR),
+                           &render_state_ptr, sizeof(render_state_ptr));
+        if (!render_state_ptr) return;
+
+        uint32_t vp_w = 0, vp_h = 0;
+        host_->memory->read(reinterpret_cast<const void*>(render_state_ptr + 0x28),
+                           &vp_w, sizeof(vp_w));
+        host_->memory->read(reinterpret_cast<const void*>(render_state_ptr + 0x2C),
+                           &vp_h, sizeof(vp_h));
 
         if (vp_w == 0 || vp_h == 0) return;
 
-        // Compute pillarbox geometry
+        // Compute pillarbox using the same dimensions the game uses
         PillarboxGeometry geo = compute_pillarbox(vp_w, vp_h);
         if (!geo.has_pillarbox) return;
+
+        // Write debug info to file once
+        if (!logged_dims_) {
+            FILE* f = fopen("C:\\games\\caster\\sidebar_debug.txt", "w");
+            if (f) {
+                fprintf(f, "render_state ptr: 0x%08X\n", render_state_ptr);
+                fprintf(f, "render_state backbuffer: %ux%u\n", vp_w, vp_h);
+                fprintf(f, "viewport (from ctx): %ux%u\n", ctx->viewport_width, ctx->viewport_height);
+                fprintf(f, "aspect_mode written: %u\n", aspect_mode_written_);
+                fprintf(f, "pillarbox: game_x=%d game_w=%d\n", geo.game_x, geo.game_w);
+                fprintf(f, "left: x=%d w=%d\n", geo.left_x, geo.left_w);
+                fprintf(f, "right: x=%d w=%d\n", geo.right_x, geo.right_w);
+                fprintf(f, "total: %d + %d + %d = %d (viewport=%u)\n",
+                        geo.left_w, geo.game_w, geo.right_w,
+                        geo.left_w + geo.game_w + geo.right_w, vp_w);
+                fclose(f);
+            }
+            logged_dims_ = true;
+        }
 
         // Lazy-init renderer
         if (!renderer_.is_initialized()) {
@@ -275,9 +332,12 @@ private:
     FadeTransition fade_p2_;
 
     uint32_t last_game_mode_ = 0;
+    uint32_t aspect_mode_written_ = 0;
     bool characters_need_update_ = false;
     bool returning_to_defaults_ = false;
     bool defaults_loaded_ = false;
+    bool logged_dims_ = false;
+    bool logged_geo_ = false;
 };
 
 } // namespace widescreen

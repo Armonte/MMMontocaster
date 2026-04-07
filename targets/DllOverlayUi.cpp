@@ -149,7 +149,18 @@ void PresentFrameBegin ( IDirect3DDevice9 *device )
     D3DVIEWPORT9 viewport;
     device->GetViewport ( &viewport );
 
-    // Only draw in the main viewport; there should only be one with this width
+    // Always invoke Menu-layer plugin callbacks (e.g. widescreen sidebars)
+    // regardless of viewport, so they render during movies and all screens.
+    if ( initalizedDirectX && cccaster::plugin::DetourManager::instance().render_callbacks_enabled ( cccaster::plugin::RenderLayerId::Menu ) )
+    {
+        cccaster::plugin::RenderContext render_context{};
+        render_context.device = device;
+        render_context.viewport_width = viewport.Width;
+        render_context.viewport_height = viewport.Height;
+        cccaster::plugin::DetourManager::instance().invoke_render ( cccaster::plugin::RenderLayerId::Menu, render_context );
+    }
+
+    // Only draw text overlays and ImGui in the main viewport
     static DWORD* const kCcScreenWidthAddr = reinterpret_cast<DWORD*>(0x54D048);
     if ( viewport.Width != *kCcScreenWidthAddr )
         return;

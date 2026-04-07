@@ -139,14 +139,14 @@ IDirect3DTexture9* TextureManager::load_bmp(IDirect3DDevice9* device, const std:
     HRESULT hr = D3DXCreateTextureFromFileExA(
         device,
         path.c_str(),
-        D3DX_DEFAULT_NONPOW2, // Width: use file dimension
-        D3DX_DEFAULT_NONPOW2, // Height: use file dimension
+        160,                   // Width: exact BMP dimension
+        720,                   // Height: exact BMP dimension
         1,                     // MipLevels: 1 (no mipmaps)
         0,                     // Usage
-        D3DFMT_UNKNOWN,        // Format: auto from file
+        D3DFMT_A8R8G8B8,      // Format: 32-bit ARGB
         D3DPOOL_MANAGED,       // Pool: managed (survives device reset)
         D3DX_FILTER_LINEAR,    // Filter
-        D3DX_FILTER_LINEAR,    // MipFilter
+        D3DX_FILTER_NONE,      // MipFilter: none (no mipmaps)
         0,                     // ColorKey: none
         nullptr,               // SrcInfo
         nullptr,               // Palette

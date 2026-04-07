@@ -484,14 +484,8 @@ void renderOverlayText ( IDirect3DDevice9 *device, const D3DVIEWPORT9& viewport 
                     OVERLAY_DEBUG_COLOR );
     }
 
-    if ( cccaster::plugin::DetourManager::instance().render_callbacks_enabled ( cccaster::plugin::RenderLayerId::Menu ) )
-    {
-        cccaster::plugin::RenderContext render_context{};
-        render_context.device = device;
-        render_context.viewport_width = viewport.Width;
-        render_context.viewport_height = viewport.Height;
-        cccaster::plugin::DetourManager::instance().invoke_render ( cccaster::plugin::RenderLayerId::Menu, render_context );
-    }
+    // Menu-layer render callbacks are now invoked in PresentFrameBegin (DllOverlayUi.cpp)
+    // before the viewport check, so they fire during movies and all screens.
 
     if ( state == State::Disabled )
         return;
