@@ -3,6 +3,7 @@
 #include "Constants.hpp"
 #include "ProcessManager.hpp"
 #include "DllAsmHacks.hpp"
+#include "CCGameAddrs.hpp"   // ccIsSteam() -- skip CE-absolute asm hacks on the ASLR'd Steam image
 
 #include <timeapi.h>
 #include <synchapi.h>
@@ -31,15 +32,41 @@ void enable()
 
 	// this runs regardless of the setting in caster. why. 
 
-    // TODO find an alternative because this doesn't work on Wine
-    WRITE_ASM_HACK ( AsmHacks::disableFpsLimit );
-    WRITE_ASM_HACK ( AsmHacks::disableFpsCounter );
+    if ( ccIsSteam() )
+    {
+        // disableFpsLimit PORTED: set the game's perf-freq global to 1 so the frame limiter computes a
+        // bogus elapsed time and never caps. CE CC_PERF_FREQ 0x774A80 -> Steam 0x7DC2C0 (timing-globals
+        // cluster delta 0x667840, anchored by g_FpsCounter 0x774A70->0x7DC2B0 via the HUD_DrawFPSCounter/
+        // Game_Init twins; perf-freq = g_FpsCounter+0x10). No direct xref -- same as CE 0x774A80 (read via
+        // computed/struct access). Final confirmation is runtime (watch 0x7DC2C0). RVA 0x3DC2C0.
+        AsmHacks::Asm steamDisableFpsLimit { ( void * ) ( g_ccBase + 0x3DC2C0 ),
+                                             { 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } };
+        WRITE_ASM_HACK ( steamDisableFpsLimit );
 
-	// this will call limitfps after present (and the stuff which hooks onto present) exits
-	// it might be better? but it makes my frame counter look worse, for obvious reasons
-	for ( const AsmHacks::Asm& hack : AsmHacks::hookPresentCaller ) {
-		WRITE_ASM_HACK ( hack );
-	}
+        // disableFpsCounter PORTED: NOP the game's write to g_FpsCounter inside the frame limiter (Steam
+        // fn 0x48b130: `mov dword_7DC2B0, ecx` @ 0x48B19C, bytes 89 0D B0 C2 7D 00 verified vs binary) so
+        // the caster's own FPS value (written via CC_FPS_COUNTER_ADDR=0x7DC2B0) isn't overwritten. CE
+        // NOP'd the equivalent store in FrameTimer_Accumulate. RVA 0x08B19C, 6 bytes.
+        AsmHacks::Asm steamDisableFpsCounter { ( void * ) ( g_ccBase + 0x08B19C ),
+                                               { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 } };
+        WRITE_ASM_HACK ( steamDisableFpsCounter );
+
+        // hookPresentCaller: CE's game-code naked-asm trampoline (into FrameTimer_WaitForTargetTime) is
+        // replaced on Steam by calling limitFPS() from the build-independent D3D present hook -- identical
+        // effect, no game addresses. See PresentFrameEnd() below.
+    }
+    else
+    {
+        // TODO find an alternative because this doesn't work on Wine
+        WRITE_ASM_HACK ( AsmHacks::disableFpsLimit );
+        WRITE_ASM_HACK ( AsmHacks::disableFpsCounter );
+
+        // this will call limitfps after present (and the stuff which hooks onto present) exits
+        // it might be better? but it makes my frame counter look worse, for obvious reasons
+        for ( const AsmHacks::Asm& hack : AsmHacks::hookPresentCaller ) {
+            WRITE_ASM_HACK ( hack );
+        }
+    }
 
     isEnabled = true;
 
@@ -306,9 +333,36 @@ void limitFPS() {
         return;
 
 	//oldCasterFrameLimiter();
-	
+
 	newCasterFrameLimiter();
 
+}
+
+bool stageAnimDecoupleActive = false;
+
+void tickStageBackground()
+{
+	// CE stage-background updaters = the update half of Background_UpdateAndRender (0x4B9540), no render.
+	typedef void ( *BgUpdateFn )();
+	static const BgUpdateFn updaters[] = {
+		( BgUpdateFn ) 0x4B88B0,   // Background_UpdateLayerAnimations (per-object frame stepper)
+		( BgUpdateFn ) 0x4B8530,   // Background_UpdateLayerPositions  (kinematic integrator)
+		( BgUpdateFn ) 0x4B8CD0,   // Background_ProcessLayerCommands
+		( BgUpdateFn ) 0x4B8DF0,   // Background_UpdateLayerTransitions
+		( BgUpdateFn ) 0x4B5210,   // DropObject_UpdateParticles
+		( BgUpdateFn ) 0x4B9100,   // Background_UpdateTimerState (scroll / round-transition)
+	};
+
+	// Same gate the game uses in Background_UpdateAndRender: advance only when stage anims are ON
+	// ( [gGameSettings+0x164] == 0 ) or during the first couple frames ( g_BGUnknownCounter <= 1 ). The
+	// updaters self-gate on pause / super-flash freeze / slow-motion, so those still behave correctly.
+	const uint32_t stageAnimOff   = *( volatile uint32_t * ) 0x5542A4;
+	const uint32_t bgFrameCounter = *( volatile uint32_t * ) 0x76E79C;
+	if ( stageAnimOff != 0 && bgFrameCounter > 1 )
+		return;
+
+	for ( BgUpdateFn fn : updaters )
+		fn();
 }
 
 }
@@ -317,6 +371,20 @@ void PresentFrameEnd ( IDirect3DDevice9 *device )
 {
 	// comment this out if you uncommented the hookPresentCaller hack
 	//DllFrameRate::limitFPS();
+
+	// Steam port of hookPresentCaller: the CE game-code trampoline is gated off; call limitFPS() here
+	// from the D3D present hook (D3DHook.cc DX9_Present), which is device-vtable-based and so works on
+	// Steam unchanged -- same effect as CE's per-present limit, with no game addresses. NOTE limitFPS()
+	// reads CC_SKIP_FRAMES_ADDR / writes CC_FPS_COUNTER_ADDR, so it is only fully correct once
+	// CC_USE_RUNTIME_ADDRS (the dual-target data layer) is enabled for the Steam build.
+	if ( ccIsSteam() )
+		DllFrameRate::limitFPS();
+
+	// Stage-background rollback decouple (CE): advance the stage exactly once per real displayed frame,
+	// independent of the rolled-back sim / skip-frames render path (which is render-only when active).
+	// This is what removes the online stage-animation jitter during rollbacks.
+	if ( DllFrameRate::stageAnimDecoupleActive )
+		DllFrameRate::tickStageBackground();
 }
 
 void setDesiredFPS(double desiredFps_) {

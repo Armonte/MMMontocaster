@@ -22,6 +22,7 @@ DEBUGGER = debugger.exe
 GENERATOR = generator.exe
 PALETTES = palettes.exe
 MBAA_EXE = MBAA.exe
+MBAA_STEAM_APPID = 411370
 README = README.md
 CHANGELOG = ChangeLog.txt
 RELAY_LIST = relay_list.txt
@@ -104,6 +105,7 @@ endif
 DEFINES = -DWIN32_LEAN_AND_MEAN -DWINVER=0x600 -D_WIN32_WINNT=0x600 -D_M_IX86
 DEFINES += -DNAMED_PIPE='"\\\\.\\pipe\\cccaster_pipe"' -DNAMED_PIPE2='"\\\\.\\pipe\\cccaster2_pipe"' -DPALETTES_FOLDER='"$(PALETTES_FOLDER)\\"' -DREADME='"$(README)"'
 DEFINES += -DMBAA_EXE='"$(MBAA_EXE)"' -DBINARY='"$(BINARY)"' -DFOLDER='"$(FOLDER)\\"' -DCHANGELOG='"$(CHANGELOG)"'
+DEFINES += -DMBAA_STEAM_APPID='"$(MBAA_STEAM_APPID)"'
 DEFINES += -DHOOK_DLL='"$(FOLDER)\\$(DLL)"' -DLAUNCHER='"$(FOLDER)\\$(LAUNCHER)"' -DUPDATER='"$(UPDATER)"'
 DEFINES += -DRELAY_LIST='"$(RELAY_LIST)"' -DTAG='"$(TAG)"'
 DEFINES += -DLOBBY_LIST='"$(LOBBY_LIST)"'
@@ -124,6 +126,13 @@ LD_FLAGS = -m32 -static -lws2_32 -lpsapi -lwinpthread -lwinmm -lole32 -ldinput -
 LD_FLAGS += -Wl,--allow-multiple-definition
 
 # Build options
+# Use SafetyHook MidHook for the main-loop hook instead of the AsmList trampoline (Steam-port prototype).
+DEFINES += -DCC_SAFETYHOOK_MAINLOOP
+# Use SafetyHook MidHook for detectRoundStart (inc roundStartCounter) instead of the AsmList trampoline.
+DEFINES += -DCC_SAFETYHOOK_ROUNDSTART
+# Route all data CC_*_ADDR through the runtime CE/Steam table (g_ccBase+g_ccAddr[k]). CE-safe (CE column
+# RVAs == ce_va-0x400000, identical addresses); REQUIRED for Steam so the caster reads correct game state.
+DEFINES += -DCC_USE_RUNTIME_ADDRS
 # DEFINES += -DDISABLE_LOGGING
 # DEFINES += -DDISABLE_ASSERTS
 # DEFINES += -DLOGGER_MUTEXED

@@ -5,6 +5,9 @@ v3.1.009
 - Track and view your playtime
 - Reduce frame limiter CPU usage
 - Improved frame limiter on linux (By Alx)
+- Added: Widescreen sidebar portraits plugin (Steam-style character art on 16:9 pillarbox strips)
+- Added: Plugin system with SafetyHook, mod support, and plugin SDK
+- Added: HUD theme plugin, replay takeover plugin
 
 v3.1.008
 - Display fps value as a rolling average, no more flickering

@@ -5,6 +5,7 @@
 #include "StringUtils.hpp"
 #include "ConsoleUi.hpp"
 #include "Version.hpp"
+#include "SteamPaths.hpp"
 
 #include <optionparser.h>
 #include <windows.h>
@@ -108,9 +109,23 @@ static bool initDirsAndSanityCheck ( bool checkGameExe = true )
         if ( ProcessManager::gameDir.back() != '\\' )
             ProcessManager::gameDir += '\\';
     }
+    else if ( GetFileAttributes ( ( ProcessManager::appDir + MBAA_EXE ).c_str() ) != INVALID_FILE_ATTRIBUTES )
+    {
+        // Classic drop-in: MBAA.exe (CE or Steam) sits next to cccaster.
+        ProcessManager::gameDir = ProcessManager::appDir;
+    }
     else
     {
-        ProcessManager::gameDir = ProcessManager::appDir;
+        // No -f and no local game exe: auto-discover the Steam install via registry +
+        // libraryfolders.vdf + appmanifest (handles any drive / Steam library folder). The Steam build
+        // must launch from its own folder anyway (steam_api.dll / steam_appid.txt / .p data), which the
+        // launcher does by setting the process CWD to gameDir.
+        const string steamDir = findSteamGameDir ( MBAA_STEAM_APPID, MBAA_EXE );
+
+        if ( steamDir.empty() )
+            ProcessManager::gameDir = ProcessManager::appDir;
+        else
+            ProcessManager::gameDir = steamDir;
     }
 
     if ( checkGameExe )

@@ -635,6 +635,12 @@ static const AsmList disableHealthBars =
 // Disable the scroll lock autoscreenshot
 static const Asm disableScreenshot = { ( void * ) 0x432Cf9, INLINE_NOP_FIVE_TIMES }; // takeScreenshot->nop
 
+// Stage-background rollback decouple (CE): make Battle_MainRenderLoop's call to Background_UpdateAndRender
+// render-ONLY (push 1 -> push 0 at 0x4238BE), so the game draws the stage every frame but never advances
+// it; cccaster advances it once per real displayed frame (DllFrameRate::tickStageBackground). Removes the
+// online stage-animation jitter caused by the advance being tied to the rollback-skipped render path.
+static const Asm stageBgRenderOnly = { ( void * ) 0x4238BE, { 0x6A, 0x00 } }; // push 1 -> push 0
+
 // Prevent Game_ApplySettingsToGlobals from zeroing the win count (dword_557D2C) in netplay VS mode.
 // The game hard-codes this to 0 for gMenuState==0x1010, which breaks win counting beyond 2 rounds.
 static const Asm disableVsWinCountReset = { ( void * ) 0x4488BC, INLINE_NOP_FIVE_TIMES };

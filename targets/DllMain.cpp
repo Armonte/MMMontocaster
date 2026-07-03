@@ -20,6 +20,7 @@
 #include "ExternalIpAddress.hpp"
 #include "PluginHost/PluginHost.hpp"
 #include "PluginHost/DetourManager.hpp"
+#include "CCGameAddrs.hpp"   // ccIsSteam() / g_ccBase -- variant-aware match-flow asm hacks
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -117,6 +118,21 @@ static std::uint64_t mainFrameCallbackHandle = 0;
 // Mutex for deinitialize()
 static Mutex deinitMutex;
 static void deinitialize();
+
+// Apply a base-relative byte patch on the running (CE/Steam) image, by RVA off the runtime module base
+// (ASLR-safe). Used for the few match-flow asm-hacks whose Steam addresses are byte-verified vs
+// MBAA_steam.exe. Logs + aborts on failure, matching WRITE_ASM_HACK.
+static void writeSteamHack ( const char* name, DWORD rva, std::vector<uint8_t> bytes )
+{
+    AsmHacks::Asm hack { ( void * ) ( g_ccBase + rva ), std::move ( bytes ) };
+    const int error = hack.write();
+    if ( error != 0 )
+    {
+        LOG ( "[%d] %s; steam hack %s (rva 0x%06X) failed", error, WinException::getAsString ( error ), name, rva );
+        exit ( -1 );
+    }
+    LOG ( "steam hack %s applied @ 0x%08X", name, ( DWORD ) ( g_ccBase + rva ) );
+}
 
 // Enum of variables to monitor
 ENUM ( Variable, WorldTime, GameMode, GameState, RoundStart,
@@ -2001,6 +2017,19 @@ struct DllMain
                     *CC_STAGE_ANIMATION_OFF_ADDR = 0;
                 }
 
+                // Decouple stage-background animation from rollback (CE): make the game's render-path
+                // advance render-only, and let cccaster advance the stage once per real displayed frame
+                // (DllFrameRate present hook). Fixes the online stage-animation jitter where the advance
+                // was tied to the rollback-skipped render cadence. The present-tick self-gates on the
+                // game's own stage-anims-on flag, so this is a no-op when stage anims are off.
+                // CE only for now (raw CE addresses; Steam Background_* twins are a follow-up).
+                if ( ! ccIsSteam() && ! DllFrameRate::stageAnimDecoupleActive )
+                {
+                    WRITE_ASM_HACK ( AsmHacks::stageBgRenderOnly );
+                    DllFrameRate::stageAnimDecoupleActive = true;
+                    LOG ( "Stage-anim rollback decouple enabled (CE)" );
+                }
+
                 // This will log in the previous appDir folder it not the same
                 LOG ( "appDir='%s'", ProcessManager::appDir );
 
@@ -2188,21 +2217,44 @@ struct DllMain
                 clientMode = newMode;
                 clientMode.flags |= ClientMode::GameStarted;
 
-                for ( const AsmHacks::Asm& hack : AsmHacks::addExtraDraws )
-                    WRITE_ASM_HACK ( hack );
+                // addExtraDraws uses CE absolute addresses and isn't RE'd on Steam yet -> CE-only.
+                if ( ! ccIsSteam() )
+                    for ( const AsmHacks::Asm& hack : AsmHacks::addExtraDraws )
+                        WRITE_ASM_HACK ( hack );
+
+                // forceGoto* patch the title-menu mode dispatcher to jump straight to a mode's setup block,
+                // bypassing the menu-string compare chain. CE patches `test al,al` @0x42B475. Steam:
+                // dispatcher TitleMenu_DispatchSelectedMode 0x4852B0, branch site 0x4852E6 (test eax,eax).
+                // Every Steam mode block is `movzx eax,g_active_player_side; push; call SetupMode_X` and is
+                // entered with identical esp (compare chain is __fastcall), so jumping there is stack-safe.
+                // Targets (all byte-verified vs MBAA_steam.exe; E9 clobbers the dead test+jnz+cmp-byte that
+                // are never reached/targeted once we always jump -- same trick as CE's E9 replay patch):
+                //   Training 0x485332 (EB 4A, rel8) | VS_PLAYER 0x48536B | VS_CPU 0x4853A4 | VS_REPLAY 0x48542C
                 if ( clientMode.isTraining() ) {
-                    WRITE_ASM_HACK ( AsmHacks::forceGotoTraining );
+                    if ( ccIsSteam() )
+                        writeSteamHack ( "forceGotoTraining", 0x0852E6, { 0xEB, 0x4A } );              // ->0x485332
+                    else
+                        WRITE_ASM_HACK ( AsmHacks::forceGotoTraining );
                     if ( clientMode.isTrial() ) {
-                        for ( const AsmHacks::Asm& hack : AsmHacks::disableHealthBars )
-                            WRITE_ASM_HACK ( hack );
+                        // disableHealthBars not RE'd on Steam yet -> CE-only.
+                        if ( ! ccIsSteam() )
+                            for ( const AsmHacks::Asm& hack : AsmHacks::disableHealthBars )
+                                WRITE_ASM_HACK ( hack );
                         isTrial = true;
                     }
-                } else if ( clientMode.isVersusCPU() )
-                    WRITE_ASM_HACK ( AsmHacks::forceGotoVersusCPU );
-                else if ( clientMode.isReplay() )
-                    WRITE_ASM_HACK ( AsmHacks::forceGotoReplay );
-                else
-                    WRITE_ASM_HACK ( AsmHacks::forceGotoVersus );
+                } else if ( clientMode.isVersusCPU() ) {
+                    if ( ccIsSteam() )
+                        writeSteamHack ( "forceGotoVersusCPU", 0x0852E6, { 0xE9, 0xB9, 0x00, 0x00, 0x00 } ); // ->0x4853A4
+                    else WRITE_ASM_HACK ( AsmHacks::forceGotoVersusCPU );
+                } else if ( clientMode.isReplay() ) {
+                    if ( ccIsSteam() )
+                        writeSteamHack ( "forceGotoReplay", 0x0852E6, { 0xE9, 0x41, 0x01, 0x00, 0x00 } );    // ->0x48542C
+                    else WRITE_ASM_HACK ( AsmHacks::forceGotoReplay );
+                } else {
+                    if ( ccIsSteam() )
+                        writeSteamHack ( "forceGotoVersus", 0x0852E6, { 0xE9, 0x80, 0x00, 0x00, 0x00 } );    // ->0x48536B
+                    else WRITE_ASM_HACK ( AsmHacks::forceGotoVersus );
+                }
 
                 isSinglePlayer = clientMode.isSinglePlayer();
 
@@ -2590,8 +2642,13 @@ struct DllMain
                 // Rollback specific game hacks
                 if ( netMan.getRollback() )
                 {
-                    // Manually control intro state
-                    WRITE_ASM_HACK ( AsmHacks::hijackIntroState );
+                    // Manually control intro state by NOP'ing the `mov g_training_standby_mode,0` store.
+                    // CE 0x45C1F2 / Steam 0x4B2F1A (both a 7-byte `c6 05 <g> 00`; byte-verified vs binary).
+                    if ( ccIsSteam() )
+                        writeSteamHack ( "hijackIntroState", 0x0B2F1A,
+                                         { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 } );
+                    else
+                        WRITE_ASM_HACK ( AsmHacks::hijackIntroState );
 
                 }
 
@@ -2902,6 +2959,10 @@ extern "C" BOOL APIENTRY DllMain ( HMODULE, DWORD reason, LPVOID )
     {
         case DLL_PROCESS_ATTACH:
         {
+#ifdef CC_USE_RUNTIME_ADDRS
+            // Detect CE vs Steam and populate the runtime CC_*_ADDR table BEFORE any address is used.
+            InitCCAddrs();
+#endif
             ProcessManager::gameDir.clear();
 
             char buffer[4096];
