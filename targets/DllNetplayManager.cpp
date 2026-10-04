@@ -675,6 +675,28 @@ void NetplayManager::updateFrame()
     _indexedFrame.parts.frame = ( *CC_WORLD_TIMER_ADDR ) - _startWorldTime;
 }
 
+void NetplayManager::recordPreviousFrameTicked()
+{
+    if ( !isInGame() || getFrame() == 0 || getIndex() < _startIndex )
+        return;
+
+    const uint32_t q = getIndex() - _startIndex;
+    if ( q >= 30 )
+        return;
+
+    // Evaluated at the START of the next frame step, i.e. after the previous frame fully ran: g_SlowmoDivisor is only (re)assigned in
+    // Battle_UpdateGlobalTimers BEFORE the sim gate, and g_RealTimer was already incremented for that frame, so these are exactly the values
+    // Battle_Tick tested. Computed from game state each frame, so a rollback re-run simply overwrites the entry with the re-simulated answer.
+    const uint32_t prev = getFrame() - 1;
+    std::vector<uint8_t>& v = tickedFrames[q];
+    if ( v.size() <= prev )
+        v.resize ( prev + 1, 1 );
+
+    const bool paused = *CC_PAUSE_FLAG_ADDR != 0;
+    const bool slowSkip = *CC_SLOWDOWN_DIVISOR_ADDR != 0 && ( *CC_REAL_TIMER_ADDR % 3 ) != 0;
+    v[prev] = ( paused || slowSkip ) ? 0 : 1;
+}
+
 uint32_t NetplayManager::getBufferedPreserveStartIndex() const
 {
     if ( preserveStartIndex == UINT_MAX )
@@ -1276,11 +1298,21 @@ void NetplayManager::exportInputs() {
         return;
     }
 
+    // ONE LINE PER SIM TICK, NOT PER REAL FRAME. The native replay consumes one input run unit per sim tick; frames the slowdown skipped
+    // (tickedFrames[q][i] == 0) never reached the game's input read and must not be in the tape, or every input after a slowdown is late.
+    // (The last frame has no "next frame step" to classify it; it defaults to ticked, which only matters after the round is decided.)
     repFile2 << indexes.size() << endl;
     for ( int q : indexes ) {
-        sprintf( buf, "%d\n", _inputs[0].getEndFrame( q ) );
+        const uint32_t end = _inputs[0].getEndFrame( q );
+        const std::vector<uint8_t>& tk = tickedFrames[q];
+        uint32_t ticked = 0;
+        for ( uint32_t i = 0; i < end; ++i )
+            if ( i >= tk.size() || tk[i] ) ++ticked;
+        sprintf( buf, "%d\n", ticked );
         repFile2 << buf;
-        for ( uint32_t i = 0; i < _inputs[0].getEndFrame( q ); ++i ) {
+        for ( uint32_t i = 0; i < end; ++i ) {
+            if ( i < tk.size() && !tk[i] )
+                continue;
             sprintf( buf, "%04x %04x\n",
                      _inputs[0].get ( q, i ),
                      _inputs[1].get ( q, i ) );
@@ -1341,6 +1373,7 @@ void NetplayManager::exportResults()
 void NetplayManager::resetInGameIndexes() {
     for (int i = 0; i < 30; ++i ){
         inGameIndexes[i] = false;
+        tickedFrames[i].clear();
     }
 }
 

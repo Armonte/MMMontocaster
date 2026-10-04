@@ -40,6 +40,12 @@ public:
     // Update the current netplay frame
     void updateFrame();
 
+    // Record whether the PREVIOUS netplay frame ticked the game simulation. Call once per frame step, right after updateFrame().
+    // The game's native replay stores one input run unit per SIM tick, but a netplay frame is one real frame (CC_WORLD_TIMER): during slowdown
+    // (g_SlowmoDivisor != 0) the sim only ticks every 3rd real frame (Battle_Tick 0x423630), so a tape exported per real frame shifts every
+    // input after the first slowdown. exportInputs() therefore writes only ticked frames.
+    void recordPreviousFrameTicked();
+
     // Get index / frame information
     uint32_t getFrame() const { return _indexedFrame.parts.frame; }
     uint32_t getIndex() const { return _indexedFrame.parts.index; }
@@ -68,6 +74,7 @@ public:
 
     // Dump netplay inputs
     bool inGameIndexes[30] = {};
+    std::vector<uint8_t> tickedFrames[30];   // per in-game index (relative to _startIndex), per frame: 1 = the sim ticked, 0 = slowdown/pause skipped it
     std::vector<int> getInGameIndexes();
     void resetInGameIndexes();
     void exportInputs();

@@ -1173,6 +1173,7 @@ struct DllMain
     {
         // New frame
         netMan.updateFrame();
+        netMan.recordPreviousFrameTicked();   // did last frame tick the sim? (slowdown skips ticks; exportInputs writes ticked frames only)
         procMan.clearInputs();
 
         // Check for changes to important variables for state transitions
