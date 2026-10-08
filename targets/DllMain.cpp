@@ -1201,8 +1201,13 @@ struct DllMain
         frameStepSpectators();
 
         // Write game inputs
-        procMan.writeGameInput ( localPlayer, netMan.getInput ( localPlayer ) );
-        procMan.writeGameInput ( remotePlayer, netMan.getInput ( remotePlayer ) );
+        {
+            const uint16_t localIn = netMan.getInput ( localPlayer ), remoteIn = netMan.getInput ( remotePlayer );
+            procMan.writeGameInput ( localPlayer, localIn );
+            procMan.writeGameInput ( remotePlayer, remoteIn );
+            // replay tape = what the game was actually fed (last execution of the frame wins)
+            netMan.recordExecutedInputs ( localPlayer == 1 ? localIn : remoteIn, localPlayer == 1 ? remoteIn : localIn );
+        }
 
 #ifndef RELEASE
         if ( replayInputs && ( replaySpeed == 1 || KeyboardState::isDown ( VK_SPACE ) ) )

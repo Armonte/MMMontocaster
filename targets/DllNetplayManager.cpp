@@ -1313,9 +1313,11 @@ void NetplayManager::exportInputs() {
         for ( uint32_t i = 0; i < end; ++i ) {
             if ( i < tk.size() && !tk[i] )
                 continue;
+            // executed timeline when recorded (see recordExecutedInputs), else the buffer
+            const bool ex = i < executedInputs[q].size();
             sprintf( buf, "%04x %04x\n",
-                     _inputs[0].get ( q, i ),
-                     _inputs[1].get ( q, i ) );
+                     ex ? executedInputs[q][i][0] : _inputs[0].get ( q, i ),
+                     ex ? executedInputs[q][i][1] : _inputs[1].get ( q, i ) );
             repFile2 << buf;
         }
     }
@@ -1370,10 +1372,25 @@ void NetplayManager::exportResults()
     resFile.close();
 }
 
+void NetplayManager::recordExecutedInputs ( uint16_t p1, uint16_t p2 )
+{
+    if ( !isInGame() || getIndex() < _startIndex )
+        return;
+    const uint32_t q = getIndex() - _startIndex;
+    if ( q >= 30 )
+        return;
+    std::vector<std::array<uint16_t, 2>>& v = executedInputs[q];
+    const uint32_t f = getFrame();
+    if ( v.size() <= f )
+        v.resize ( f + 1, { 0, 0 } );
+    v[f] = { p1, p2 };
+}
+
 void NetplayManager::resetInGameIndexes() {
     for (int i = 0; i < 30; ++i ){
         inGameIndexes[i] = false;
         tickedFrames[i].clear();
+        executedInputs[i].clear();
     }
 }
 

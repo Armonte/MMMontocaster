@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "Messages.hpp"
 #include "InputsContainer.hpp"
@@ -75,6 +76,11 @@ public:
     // Dump netplay inputs
     bool inGameIndexes[30] = {};
     std::vector<uint8_t> tickedFrames[30];   // per in-game index (relative to _startIndex), per frame: 1 = the sim ticked, 0 = slowdown/pause skipped it
+    // The inputs the game was actually FED at each frame, last execution wins (a rollback re-run overwrites). [q][frame] = { p1, p2 }.
+    // The buffer (_inputs) holds late remote inputs that were never delivered before the round ended, so the executed timeline (the one the
+    // recorded RNG vector belongs to) differs from it in the final frames; the replay tape must be the EXECUTED inputs.
+    std::vector<std::array<uint16_t, 2>> executedInputs[30];
+    void recordExecutedInputs ( uint16_t p1, uint16_t p2 );
     std::vector<int> getInGameIndexes();
     void resetInGameIndexes();
     void exportInputs();
