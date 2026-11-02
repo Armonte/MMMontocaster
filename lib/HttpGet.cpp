@@ -42,6 +42,7 @@ void HttpGet::start()
     _headerBuffer.clear();
     _dataBuffer.clear();
     _remainingBytes = 0;
+    _contentLength = 0;
 
     // "host" uses port 80; "host:port" (e.g. a local registry) uses its own port
     const string hostPort = ( _host.find ( ':' ) == string::npos ? _host + ":80" : _host );
@@ -153,7 +154,9 @@ void HttpGet::parseResponse ( const string& data )
 
             if ( responseBytes == 0 )
             {
-                finalize();
+                // The body may arrive in a later read: only finish now if there is none
+                if ( _remainingBytes == 0 )
+                    finalize();
                 return;
             }
 
