@@ -411,10 +411,12 @@ void HostCodeKeeper::httpResponse ( HttpGet *httpGet, int status, const string& 
     if ( remainingBytes || _stopped )
         return;
 
-    _httpGet.reset();
-
+    // Parse before dropping the HttpGet: data belongs to it
     HostCode::Reply reply;
     const bool parsed = HostCode::parseReply ( data, reply );
+    const uint32_t bytes = ( uint32_t ) data.size();
+
+    _httpGet.reset();
 
     if ( status == 200 && parsed && ! reply.code.empty() )
     {
@@ -437,7 +439,7 @@ void HostCodeKeeper::httpResponse ( HttpGet *httpGet, int status, const string& 
         return;
     }
 
-    LOG ( "Host code registry answered %d '%s'", status, reply.error );
+    LOG ( "Host code registry answered %d '%s' (%u bytes)", status, reply.error, bytes );
 
     if ( ! _code.empty() && status == 403 )
     {
