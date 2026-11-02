@@ -25,6 +25,7 @@
 #define HOST_CODE_DEFAULT_URL   "http://watch.meltyblood.org/hc"
 #define HOST_CODE_KEEPALIVE_MS  ( 20000 )
 #define HOST_CODE_HTTP_TIMEOUT  ( 3000 )
+#define HOST_CODE_MIN_CREATE_MS ( 5000 )   // never ask for a new code faster than this
 
 
 namespace HostCode
@@ -110,7 +111,13 @@ private:
 
     uint16_t _port = 0;
 
+    uint64_t _lastCreate = 0;
+
+    void create();
+
     bool _stopped = true;
+
+    bool _recreating = false;
 
     std::shared_ptr<HttpGet> _httpGet;
 

@@ -376,10 +376,16 @@ void HostCodeKeeper::start ( uint16_t port )
     _code.clear();
     _secret.clear();
     _stopped = false;
+    _recreating = false;
 
-    LOG ( "Registering host code (port %u)", port );
+    create();
+}
 
-    request ( format ( "action=host&proto=cc&port=%u", port ) );
+void HostCodeKeeper::create()
+{
+    LOG ( "Registering host code (port %u)", _port );
+    _lastCreate = TimerManager::get().getNow ( true );
+    request ( format ( "action=host&proto=cc&port=%u", _port ) );
 }
 
 void HostCodeKeeper::request ( const string& query )
@@ -413,6 +419,7 @@ void HostCodeKeeper::httpResponse ( HttpGet *httpGet, int status, const string& 
     if ( status == 200 && parsed && ! reply.code.empty() )
     {
         const bool isNew = ( reply.code != _code );
+        _recreating = false;
         if ( ! reply.secret.empty() )
             _secret = reply.secret;
         _code = reply.code;
@@ -434,10 +441,23 @@ void HostCodeKeeper::httpResponse ( HttpGet *httpGet, int status, const string& 
 
     if ( ! _code.empty() && status == 403 )
     {
-        // The registry forgot our code (restart / expiry): register again, the UI shows the new code
+        // The registry forgot our code (restart / expiry): register again, the UI shows the new code.
+        // Never faster than every HOST_CODE_MIN_CREATE_MS, so a sick registry isn't hammered.
         _code.clear();
         _secret.clear();
-        request ( format ( "action=host&proto=cc&port=%u", _port ) );
+        _recreating = true;
+        const uint64_t since = TimerManager::get().getNow ( true ) - _lastCreate;
+        if ( ! _timer )
+            _timer.reset ( new Timer ( this ) );
+        _timer->start ( since >= HOST_CODE_MIN_CREATE_MS ? 1 : HOST_CODE_MIN_CREATE_MS - since );
+        return;
+    }
+
+    if ( _code.empty() && _recreating )
+    {
+        // a failed re-create: try again later (the old code is gone; the UI keeps showing it until a new one comes)
+        if ( _timer )
+            _timer->start ( HOST_CODE_KEEPALIVE_MS / 4 );
         return;
     }
 
@@ -462,6 +482,13 @@ void HostCodeKeeper::httpFailed ( HttpGet *httpGet )
 
     LOG ( "Host code registry unreachable" );
 
+    if ( _code.empty() && _recreating )
+    {
+        if ( _timer )
+            _timer->start ( HOST_CODE_KEEPALIVE_MS / 4 );
+        return;
+    }
+
     if ( _code.empty() )
     {
         if ( owner )
@@ -475,8 +502,15 @@ void HostCodeKeeper::httpFailed ( HttpGet *httpGet )
 
 void HostCodeKeeper::timerExpired ( Timer *timer )
 {
-    if ( _stopped || _code.empty() )
+    if ( _stopped )
         return;
+
+    if ( _code.empty() )
+    {
+        if ( _recreating )
+            create();
+        return;
+    }
 
     request ( format ( "action=host&proto=cc&port=%u&code=%s&secret=%s",
                        _port, HostCode::urlEncode ( _code ), HostCode::urlEncode ( _secret ) ) );
