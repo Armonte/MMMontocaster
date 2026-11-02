@@ -1321,6 +1321,10 @@ struct MainApp
         if ( ! ProcessManager::appDir.empty() )
             options.set ( Options::AppDir, 1, ProcessManager::appDir );
 
+        // Joined by host code: the game's log hides the host's address too
+        if ( ! HostCode::joinedCode().empty() && ! address.addr.empty() )
+            options.set ( Options::LogRedact, 1, address.addr + "|<code " + HostCode::joinedCode() + ">" );
+
         if ( ui.getConfig().getDouble ( "heldStartDuration" ) > 0 )
         {
             options.set ( Options::HeldStartDuration, 1,
