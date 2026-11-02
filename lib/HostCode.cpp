@@ -264,7 +264,8 @@ bool resolve ( const string& codeText, IpAddrPort& address, string& error )
 
     if ( r.status == 429 || reply.error == "throttled" )
     {
-        error = format ( "Too many code lookups, try again in %u seconds", ( reply.retryAfterMs + 999 ) / 1000 );
+        const unsigned secs = ( reply.retryAfterMs + 999 ) / 1000;
+        error = format ( "Too many code lookups, try again in %u second%s", secs, ( secs == 1 ? "" : "s" ) );
         LOG ( "Host code %s: throttled", code );
         return false;
     }

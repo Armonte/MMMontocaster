@@ -283,7 +283,9 @@ struct MainApp
     {
         AutoManager _;
 
-        if ( clientMode.isBroadcast() )
+        // A broadcast registers a host code once the game reports its port (ipcRead NetplayConfig); the IP address
+        // is fetched only as the fallback, or when matchmaking through the server
+        if ( clientMode.isBroadcast() && ui.isServer() )
             externalIpAddress.start();
 
         // Open the game immediately
@@ -1190,6 +1192,9 @@ struct MainApp
             case MsgType::NetplayConfig:
                 netplayConfig = msg->getAs<NetplayConfig>();
                 isBroadcastPortReady = true;
+                // Spectators type the broadcast's code (spectate box, Broadcast mode) instead of its address
+                if ( clientMode.isBroadcast() && ! ui.isServer() && hostCode.code().empty() && ! hostCodeUnavailable )
+                    hostCode.start ( netplayConfig.broadcastPort );
                 updateStatusMessage();
                 return;
 
@@ -1456,14 +1461,16 @@ private:
             ui.display ( format ( "%s at server%s\n",
                                   ( clientMode.isBroadcast() ? "Broadcasting" : "Hosting" ),
                                   ( clientMode.isTraining() ? " (training mode)" : "" ) ) );
-        } else if ( clientMode.isHost() && ! hostCode.code().empty() ) {
+        } else if ( ( clientMode.isHost() || clientMode.isBroadcast() ) && ! hostCode.code().empty() ) {
             // Players type the code to join, or to spectate once a match is on; the IP address is never shown
             setClipboard ( hostCode.code() );
-            ui.display ( format ( "Hosting, code: %s%s\n(Code copied to clipboard)",
+            ui.display ( format ( "%s, code: %s%s\n(Code copied to clipboard)",
+                                  ( clientMode.isBroadcast() ? "Broadcasting" : "Hosting" ),
                                   hostCode.code(),
                                   ( clientMode.isTraining() ? " (training mode)" : "" ) ) );
-        } else if ( clientMode.isHost() && ! hostCodeUnavailable ) {
-            ui.display ( format ( "Hosting on port %u%s\n(Getting a host code...)",
+        } else if ( ( clientMode.isHost() || clientMode.isBroadcast() ) && ! hostCodeUnavailable ) {
+            ui.display ( format ( "%s on port %u%s\n(Getting a host code...)",
+                                  ( clientMode.isBroadcast() ? "Broadcasting" : "Hosting" ),
                                   port,
                                   ( clientMode.isTraining() ? " (training mode)" : "" ) ) );
         } else if ( externalIpAddress.address.empty() || externalIpAddress.address == ExternalIpAddress::Unknown ) {
