@@ -1,5 +1,6 @@
 #include "Main.hpp"
 #include "MainUi.hpp"
+#include "HostCode.hpp"
 #include "Version.hpp"
 #include "ConsoleUi.hpp"
 #include "Exceptions.hpp"
@@ -66,15 +67,19 @@ MainUi::MainUi() : _updater ( this )
 void MainUi::netplay ( RunFuncPtr run )
 {
     ConsoleUi::Prompt *menu = new ConsoleUi::Prompt ( ConsoleUi::Prompt::String,
-            "Enter/paste <ip>:<port> to join or <port> to host:" );
+            "Enter/paste a host code or <ip>:<port> to join, or <port> to host:" );
 
     _ui->pushRight ( menu, { 1, 0 } ); // Expand width
 
     for ( ;; )
     {
-        menu->setInitial ( ( _address.addr.empty() && !_address.empty() )
-                           ? _address.str().substr ( 1 )
-                           : _address.str() );
+        // After joining by code, the box shows the code again, never the address it resolved to
+        if ( ! HostCode::joinedCode().empty() )
+            menu->setInitial ( HostCode::joinedCode() );
+        else
+            menu->setInitial ( ( _address.addr.empty() && !_address.empty() )
+                               ? ( _address.port >= 1000 && _address.port <= 9999 ? _address.str() : _address.str().substr ( 1 ) )
+                               : _address.str() );
 
         _ui->popUntilUserInput();
 
@@ -82,6 +87,37 @@ void MainUi::netplay ( RunFuncPtr run )
             break;
 
         _ui->clearBelow();
+
+        HostCode::clearJoinedCode();
+
+        // A host code (4 digits): to host on a 4-digit port, type it as :<port>
+        if ( HostCode::isCode ( menu->resultStr ) )
+        {
+            string error;
+            _ui->pushBelow ( new ConsoleUi::TextBox ( "Looking up code " + HostCode::normalize ( menu->resultStr ) + "..." ), { 1, 0 } );
+            IpAddrPort resolved;
+            const bool found = HostCode::resolve ( menu->resultStr, resolved, error );
+            _ui->pop();
+            if ( ! found )
+            {
+                _ui->pushBelow ( new ConsoleUi::TextBox ( error ), { 1, 0 } ); // Expand width
+                continue;
+            }
+
+            initialConfig.mode.value = ClientMode::Client;
+            _netplayConfig.clear();
+
+            RUN ( resolved, initialConfig );
+
+            _ui->popNonUserInput();
+
+            if ( ! sessionError.empty() )
+            {
+                _ui->pushBelow ( new ConsoleUi::TextBox ( sessionError ), { 1, 0 } ); // Expand width
+                sessionError.clear();
+            }
+            continue;
+        }
 
         try
         {
@@ -494,13 +530,16 @@ void MainUi::spectate ( RunFuncPtr run )
     saveConfig();
 
     ConsoleUi::Prompt *menu = new ConsoleUi::Prompt ( ConsoleUi::Prompt::String,
-            "Enter/paste <ip>:<port> to spectate:" );
+            "Enter/paste a host code or <ip>:<port> to spectate:" );
 
     _ui->pushRight ( menu, { 1, 0 } ); // Expand width
 
     for ( ;; )
     {
-        menu->setInitial ( !_address.addr.empty() ? _address.str() : "" );
+        if ( ! HostCode::joinedCode().empty() )
+            menu->setInitial ( HostCode::joinedCode() );
+        else
+            menu->setInitial ( !_address.addr.empty() ? _address.str() : "" );
 
         _ui->popUntilUserInput();
 
@@ -509,20 +548,38 @@ void MainUi::spectate ( RunFuncPtr run )
 
         _ui->clearBelow();
 
-        try
-        {
-            _address = trimmed ( menu->resultStr );
-        }
-        catch ( const Exception& exc )
-        {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( exc.user ), { 1, 0 } ); // Expand width
-            continue;
-        }
+        HostCode::clearJoinedCode();
 
-        if ( _address.addr.empty() )
+        IpAddrPort target;
+
+        if ( HostCode::isCode ( menu->resultStr ) )
         {
-            _ui->pushBelow ( new ConsoleUi::TextBox ( ERROR_INVALID_ADDR_PORT ), { 1, 0 } ); // Expand width
-            continue;
+            string error;
+            if ( ! HostCode::resolve ( menu->resultStr, target, error ) )
+            {
+                _ui->pushBelow ( new ConsoleUi::TextBox ( error ), { 1, 0 } ); // Expand width
+                continue;
+            }
+        }
+        else
+        {
+            try
+            {
+                _address = trimmed ( menu->resultStr );
+            }
+            catch ( const Exception& exc )
+            {
+                _ui->pushBelow ( new ConsoleUi::TextBox ( exc.user ), { 1, 0 } ); // Expand width
+                continue;
+            }
+
+            if ( _address.addr.empty() )
+            {
+                _ui->pushBelow ( new ConsoleUi::TextBox ( ERROR_INVALID_ADDR_PORT ), { 1, 0 } ); // Expand width
+                continue;
+            }
+
+            target = _address;
         }
 
         initialConfig.mode.value = ClientMode::SpectateNetplay; // is this the issue?
@@ -530,7 +587,7 @@ void MainUi::spectate ( RunFuncPtr run )
             initialConfig.mode.value = ClientMode::SpectateBroadcast;
         }
     
-        RUN ( _address, initialConfig );
+        RUN ( target, initialConfig );
     
         _ui->popNonUserInput();
 

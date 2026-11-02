@@ -2,6 +2,7 @@
 #include "MainUi.hpp"
 #include "Pinger.hpp"
 #include "ExternalIpAddress.hpp"
+#include "HostCode.hpp"
 #include "SmartSocket.hpp"
 #include "UdpSocket.hpp"
 #include "Constants.hpp"
@@ -78,6 +79,7 @@ struct MainApp
         : public Main
         , public Pinger::Owner
         , public ExternalIpAddress::Owner
+        , public HostCodeKeeper::Owner
         , public KeyboardManager::Owner
         , public Thread
         , public SpectatorManager
@@ -85,6 +87,11 @@ struct MainApp
     IpAddrPort originalAddress;
 
     ExternalIpAddress externalIpAddress;
+
+    // The host's code (registered while hosting); the IP address is only fetched if no code can be had
+    HostCodeKeeper hostCode;
+
+    bool hostCodeUnavailable = false;
 
     InitialConfig initialConfig;
 
@@ -203,9 +210,8 @@ struct MainApp
 
         if ( clientMode.isHost() )
         {
-            if ( !ui.isServer() ) {
-                externalIpAddress.start();
-            }
+            if ( ui.isServer() )
+                hostCodeUnavailable = true;
             updateStatusMessage();
         }
         else
@@ -214,13 +220,13 @@ struct MainApp
                 if ( ui.isServer() ) {
                     ui.display ( format ( "Trying connection (UDP tunnel)" ) );
                 } else {
-                    ui.display ( format ( "Trying %s (UDP tunnel)", address ) );
+                    ui.display ( format ( "Trying %s (UDP tunnel)", HostCode::displayAddress ( address ) ) );
                 }
             } else {
                 if ( ui.isServer() ) {
                     ui.display ( format ( "Trying connection" ) );
                 } else {
-                    ui.display ( format ( "Trying %s", address ) );
+                    ui.display ( format ( "Trying %s", HostCode::displayAddress ( address ) ) );
                 }
             }
         }
@@ -232,6 +238,10 @@ struct MainApp
             address.invalidate();
 
             LOG ( "serverCtrlSocket=%08x", serverCtrlSocket.get() );
+
+            // Register a host code for this port (falls back to showing the IP address if the registry can't be reached)
+            if ( ! ui.isServer() )
+                hostCode.start ( address.port );
         }
         else
         {
@@ -259,7 +269,7 @@ struct MainApp
         if ( ui.isServer() ) {
             ui.display ( format ( "Trying connection" ) );
         } else {
-            ui.display ( format ( "Trying %s", address ) );
+            ui.display ( format ( "Trying %s", HostCode::displayAddress ( address ) ) );
         }
 
         ctrlSocket = SmartSocket::connectTCP ( this, address, options[Options::Tunnel] );
@@ -289,6 +299,9 @@ struct MainApp
             lastError = error;
 
         LOG( "stop@mainapp " );
+
+        // The code dies with the hosting session
+        hostCode.stop();
         LOG( kbCancel );
         if ( startedEventManager ) {
             LOG( "stopping event manager" );
@@ -1120,7 +1133,7 @@ struct MainApp
         if ( ui.isServer() ) {
             ui.display ( format ( "Trying connection (UDP tunnel)" ) );
         } else {
-            ui.display ( format ( "Trying %s (UDP tunnel)", address ) );
+            ui.display ( format ( "Trying %s (UDP tunnel)", HostCode::displayAddress ( address ) ) );
         }
     }
 
@@ -1266,6 +1279,20 @@ struct MainApp
         updateStatusMessage();
     }
 
+    // HostCodeKeeper callbacks
+    void hostCodeReady ( HostCodeKeeper *keeper, const string& code ) override
+    {
+        updateStatusMessage();
+    }
+
+    void hostCodeFailed ( HostCodeKeeper *keeper ) override
+    {
+        LOG ( "No host code, showing the IP address instead" );
+        hostCodeUnavailable = true;
+        externalIpAddress.start();
+        updateStatusMessage();
+    }
+
     // KeyboardManager callback
     void keyboardEvent ( uint32_t vkCode, uint32_t scanCode, bool isExtended, bool isDown ) override
     {
@@ -1283,6 +1310,7 @@ struct MainApp
                  ? config.getAs<InitialConfig>().mode
                  : config.getAs<NetplayConfig>().mode )
         , externalIpAddress ( this )
+        , hostCode ( this )
     {
         LOG ( "clientMode=%s; flags={ %s }; address='%s'; config=%s",
               clientMode, clientMode.flagString(), addr, config.getMsgType() );
@@ -1393,6 +1421,9 @@ struct MainApp
         syncLog.deinitialize();
 
         externalIpAddress.owner = 0;
+
+        hostCode.owner = 0;
+        hostCode.stop();
     }
 
 private:
@@ -1420,6 +1451,16 @@ private:
         if ( ui.isServer() ) {
             ui.display ( format ( "%s at server%s\n",
                                   ( clientMode.isBroadcast() ? "Broadcasting" : "Hosting" ),
+                                  ( clientMode.isTraining() ? " (training mode)" : "" ) ) );
+        } else if ( clientMode.isHost() && ! hostCode.code().empty() ) {
+            // Players type the code to join, or to spectate once a match is on; the IP address is never shown
+            setClipboard ( hostCode.code() );
+            ui.display ( format ( "Hosting, code: %s%s\n(Code copied to clipboard)",
+                                  hostCode.code(),
+                                  ( clientMode.isTraining() ? " (training mode)" : "" ) ) );
+        } else if ( clientMode.isHost() && ! hostCodeUnavailable ) {
+            ui.display ( format ( "Hosting on port %u%s\n(Getting a host code...)",
+                                  port,
                                   ( clientMode.isTraining() ? " (training mode)" : "" ) ) );
         } else if ( externalIpAddress.address.empty() || externalIpAddress.address == ExternalIpAddress::Unknown ) {
             ui.display ( format ( "%s on port %u%s\n",

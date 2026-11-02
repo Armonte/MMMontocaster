@@ -5,6 +5,7 @@
 #include "StringUtils.hpp"
 #include "ConsoleUi.hpp"
 #include "Version.hpp"
+#include "HostCode.hpp"
 
 #include <optionparser.h>
 #include <windows.h>
@@ -340,6 +341,10 @@ int main ( int argc, char *argv[] )
 
         tmpNewArgs = split ( argv[0] );
 
+        // "cccaster:<host code>" keeps its prefix, so it is not taken for "<port> to host"
+        if ( ! tmpNewArgs.empty() && HostCode::isCode ( tmpNewArgs[0] ) )
+            tmpNewArgs[0] = protocolPrefix + tmpNewArgs[0];
+
         for ( string& newArg : tmpNewArgs )
         {
             newArg += '\0';
@@ -515,7 +520,25 @@ int main ( int argc, char *argv[] )
     }
     else if ( parser.nonOptionsCount() == 1 )
     {
-        const IpAddrPort address = tryParseIpAddrPort ( parser.nonOption ( 0 ) );
+        const string arg = parser.nonOption ( 0 );
+        IpAddrPort address;
+
+        if ( arg.find ( protocolPrefix ) == 0 && HostCode::isCode ( arg ) )
+        {
+            // cccaster:<code> -> the registry -> the host's address (never shown); then the normal connect path
+            string error;
+            if ( HostCode::resolve ( arg, address, error ) )
+                lastError.clear();
+            else
+                lastError = error;
+
+            if ( ui.initialConfig.mode.value == ClientMode::Unknown )
+                ui.initialConfig.mode.value = ClientMode::Client;
+        }
+        else
+        {
+            address = tryParseIpAddrPort ( arg );
+        }
 
         if ( ui.initialConfig.mode.value == ClientMode::Unknown )
             ui.initialConfig.mode.value = ( address.addr.empty() ? ClientMode::Host : ClientMode::Client );
