@@ -127,8 +127,11 @@ void ProcessManager::openGame ( bool highPriority, bool isTraining )
 {
     LOG ( "Opening pipe" );
 
+    // A pipe name of our own (see CC_PIPE_ENV); the two shared names are only the fallback
+    string pipeName = format ( "%s_%u", NAMED_PIPE, ( unsigned ) GetCurrentProcessId() );
+
     _pipe = CreateNamedPipe (
-                NAMED_PIPE,                                          // name of the pipe
+                pipeName.c_str(),                                    // name of the pipe
                 PIPE_ACCESS_DUPLEX,                                  // 2-way pipe
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,     // byte stream + blocking
                 1,                                                   // only allow 1 instance of this pipe
@@ -137,7 +140,21 @@ void ProcessManager::openGame ( bool highPriority, bool isTraining )
                 0,                                                   // use default wait time
                 0 );                                                 // use default security attributes
 
+    if ( _pipe == INVALID_HANDLE_VALUE ) {
+        pipeName = NAMED_PIPE;
+        _pipe = CreateNamedPipe (
+                NAMED_PIPE,                                          // name of the pipe
+                PIPE_ACCESS_DUPLEX,                                  // 2-way pipe
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,     // byte stream + blocking
+                1,                                                   // only allow 1 instance of this pipe
+                1024,                                                // outbound buffer size
+                1024,                                                // inbound buffer size
+                0,                                                   // use default wait time
+                0 );                                                 // use default security attributes
+    }
+
     if ( _pipe == INVALID_HANDLE_VALUE ){
+        pipeName = NAMED_PIPE2;
         _pipe = CreateNamedPipe (
                 NAMED_PIPE2,                                         // name of the pipe
                 PIPE_ACCESS_DUPLEX,                                  // 2-way pipe
@@ -150,6 +167,10 @@ void ProcessManager::openGame ( bool highPriority, bool isTraining )
     }
     if ( _pipe == INVALID_HANDLE_VALUE )
         THROW_WIN_EXCEPTION ( GetLastError(), "CreateNamedPipe failed", ERROR_PIPE_OPEN );
+
+    // The game's DLL inherits this through launcher.exe (a shared name is not passed: the DLL tries those by itself)
+    SetEnvironmentVariable ( CC_PIPE_ENV, ( pipeName == NAMED_PIPE || pipeName == NAMED_PIPE2 ) ? 0 : pipeName.c_str() );
+    LOG ( "pipe='%s'", pipeName );
 
     LOG ( "appDir='%s'", appDir );
     LOG ( "gameDir='%s'", gameDir );
@@ -183,9 +204,23 @@ void ProcessManager::openGame ( bool highPriority, bool isTraining )
 
     struct TimeoutThread : public Thread
     {
+        string pipeName;
+
+        TimeoutThread ( const string& pipeName ) : pipeName ( pipeName ) {}
+
         void run() override
         {
             Sleep ( PIPE_CONNECT_TIMEOUT );
+
+            if ( pipeName != NAMED_PIPE && pipeName != NAMED_PIPE2 )
+            {
+                // Unblock our ConnectNamedPipe if the game never connected
+                HANDLE tmpPipe = CreateFile ( pipeName.c_str(), GENERIC_READ | GENERIC_WRITE,
+                                              FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0 );
+                if ( tmpPipe != INVALID_HANDLE_VALUE )
+                    CloseHandle ( tmpPipe );
+                return;
+            }
 
             HANDLE tmpPipe = CreateFile ( NAMED_PIPE, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
                                           0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0 );
@@ -205,7 +240,7 @@ void ProcessManager::openGame ( bool highPriority, bool isTraining )
         }
     };
 
-    ThreadPtr thread ( new TimeoutThread() );
+    ThreadPtr thread ( new TimeoutThread ( pipeName ) );
     thread->start();
     EventManager::get().addThread ( thread );
 

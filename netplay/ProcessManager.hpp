@@ -8,6 +8,11 @@
 #include <array>
 
 
+// The main app names its pipe to the game per process (\\.\pipe\cccaster_pipe_<pid>) and hands the name to the game's
+// DLL in this environment variable (inherited through launcher.exe), so any number of CCCaster + MBAA pairs can run on
+// one PC. Without it (an older main app) the DLL falls back to the two shared names NAMED_PIPE / NAMED_PIPE2.
+#define CC_PIPE_ENV                         "CCCASTER_PIPE"
+
 #define COMBINE_INPUT(DIRECTION, BUTTONS)   uint16_t ( ( DIRECTION ) | ( ( BUTTONS ) << 4 ) )
 
 #define INLINE_INPUT(INPUT)                 uint16_t ( ( INPUT ) & 0x000Fu ), uint16_t ( ( ( INPUT ) & 0xFFF0u ) >> 4 )

@@ -73,7 +73,20 @@ void ProcessManager::connectPipe()
 
     LOG ( "Creating pipe" );
 
-    _pipe = CreateFile (
+    // The main app's own pipe name (CC_PIPE_ENV), else the two shared names
+    char pipeName[256] = { 0 };
+    const DWORD pipeNameLen = GetEnvironmentVariable ( CC_PIPE_ENV, pipeName, sizeof ( pipeName ) );
+
+    if ( pipeNameLen > 0 && pipeNameLen < sizeof ( pipeName ) )
+    {
+        LOG ( "pipe='%s'", pipeName );
+        _pipe = CreateFile ( pipeName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, 0,
+                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0 );
+
+        if ( _pipe == INVALID_HANDLE_VALUE )
+            THROW_WIN_EXCEPTION ( GetLastError(), "CreateFile failed", ERROR_PIPE_START );
+    }
+    else _pipe = CreateFile (
                 NAMED_PIPE,                              // name of the pipe
                 GENERIC_READ | GENERIC_WRITE,            // 2-way pipe
                 FILE_SHARE_READ | FILE_SHARE_WRITE,      // R/W sharing mode
